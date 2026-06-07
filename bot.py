@@ -7,9 +7,11 @@ from datetime import timedelta
 import subprocess
 from flask import Flask
 from threading import Thread
+import signal
+import asyncio
 
 # Flask Webserver für UptimeRobot
-app = Flask('')
+#app = Flask('')
 
 @app.route('/')
 def home():
@@ -18,7 +20,7 @@ def home():
 def run():
     app.run(host='0.0.0.0', port=5000)
 
-def keep_alive():
+#def keep_alive():
     t = Thread(target=run)
     t.start()
 
@@ -68,6 +70,29 @@ async def on_ready():
         f"🟢 Bot gestartet als {bot.user}"
     )
 
+
+# 🔁 NEU
+@bot.event
+async def on_disconnect():
+    print("🔴 Bot disconnected!")
+
+    try:
+        await send_log("🔴 Bot hat die Verbindung verloren / geht möglicherweise in Sleep-Modus.")
+    except:
+        pass
+
+
+# 🔁 NEU
+@bot.event
+async def on_resumed():
+    print("🟢 Bot hat Verbindung wiederhergestellt!")
+
+    try:
+        await send_log("🟢 Bot hat sich wieder verbunden (Resumed).")
+    except:
+        pass
+
+
 # Restart Command
 @bot.tree.command(
     name="restart",
@@ -97,6 +122,7 @@ async def restart(interaction: discord.Interaction):
 
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
+
 # Nachrichten überwachen
 @bot.event
 async def on_message(message):
@@ -113,10 +139,8 @@ async def on_message(message):
     if link_regex.search(message.content):
 
         try:
-            # Nachricht löschen
             await message.delete()
 
-            # Timeout
             timeout_duration = timedelta(days=7)
 
             await message.author.timeout(
@@ -124,7 +148,6 @@ async def on_message(message):
                 reason="Posting links in chat"
             )
 
-            # DM an den User
             try:
                 await message.author.send(
                     f"⚠️ **Du wurdest verwarnt!**\n\n"
@@ -135,7 +158,6 @@ async def on_message(message):
             except discord.Forbidden:
                 pass
 
-            # Log senden
             await send_log(
                 f"⚠️ **Verwarnung ausgesprochen**\n\n"
                 f"👤 User: {message.author.mention} (`{message.author}`)\n"
@@ -148,49 +170,36 @@ async def on_message(message):
 
             print("Keine Rechte für Timeout.")
 
-            await send_log(
-                "❌ Keine Rechte für Timeout."
-            )
+            await send_log("❌ Keine Rechte für Timeout.")
 
         except Exception as e:
 
             print(f"Fehler: {e}")
 
-            await send_log(
-                f"❌ Fehler: {e}"
-            )
+            await send_log(f"❌ Fehler: {e}")
 
     await bot.process_commands(message)
+
 
 # Voice Rollen System
 @bot.event
 async def on_voice_state_update(member, before, after):
 
     guild = member.guild
-    rolle = discord.utils.get(
-        guild.roles,
-        name=ROLLEN_NAME
-    )
+    rolle = discord.utils.get(guild.roles, name=ROLLEN_NAME)
 
     if rolle is None:
 
         print("Rolle nicht gefunden")
 
-        await send_log(
-            "❌ Rolle nicht gefunden."
-        )
+        await send_log("❌ Rolle nicht gefunden.")
 
         return
 
-    # Alle Voice-Channels prüfen
     for channel in guild.voice_channels:
 
-        menschen = [
-            m for m in channel.members
-            if not m.bot
-        ]
+        menschen = [m for m in channel.members if not m.bot]
 
-        # Genau 1 Person
         if len(menschen) == 1:
 
             user = menschen[0]
@@ -199,16 +208,12 @@ async def on_voice_state_update(member, before, after):
 
                 await user.add_roles(rolle)
 
-                print(
-                    f"{user} hat die Rolle bekommen"
-                )
+                print(f"{user} hat die Rolle bekommen")
 
                 await send_log(
-                    f"🎧 {user} hat die Rolle "
-                    f"'{ROLLEN_NAME}' bekommen."
+                    f"🎧 {user} hat die Rolle '{ROLLEN_NAME}' bekommen."
                 )
 
-        # Mehr als 1 Person
         else:
 
             for user in menschen:
@@ -217,17 +222,84 @@ async def on_voice_state_update(member, before, after):
 
                     await user.remove_roles(rolle)
 
-                    print(
-                        f"{user} Rolle entfernt"
-                    )
+                    print(f"{user} Rolle entfernt")
 
                     await send_log(
-                        f"❌ {user} Rolle "
-                        f"'{ROLLEN_NAME}' entfernt."
+                        f"❌ {user} Rolle '{ROLLEN_NAME}' entfernt."
                     )
+
+
+# 🔁 NEU (Shutdown Handler)
+def handle_shutdown(signum, frame):
+    print("⚠️ Bot wird beendet!")
+
+    try:
+        loop = bot.loop
+        if loop and loop.is_running():
+            asyncio.run_coroutine_threadsafe(
+                send_log("⚠️ Bot wird beendet (Shutdown / Sleep / Restart)."),
+                loop
+            )
+    except:
+        pass
+
+
+signal.signal(signal.SIGINT, handle_shutdown)
+signal.signal(signal.SIGTERM, handle_shutdown)
+
+
+
+
+# =========================
+# /write SYSTEM (EINFACH)
+# =========================
+reaction_roles = {}
+
+class WriteModal(discord.ui.Modal, title="Nachricht erstellen"):
+    message_text = discord.ui.TextInput(
+        label="Nachricht",
+        style=discord.TextStyle.paragraph,
+        required=True,
+        max_length=2000
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.channel.send(self.message_text.value)
+        await interaction.response.send_message(
+            "✅ Nachricht gesendet.",
+            ephemeral=True
+        )
+
+@bot.tree.command(
+    name="write",
+    description="Nachricht senden"
+)
+async def write(interaction: discord.Interaction):
+
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(
+            "❌ Keine Berechtigung.",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.send_modal(WriteModal())
 
 # Keep Alive starten
 keep_alive()
 
-# Bot starten
-bot.run(TOKEN)
+
+# 🔄 ERSETZT (Bot Start sicherer gemacht)
+try:
+    bot.run(TOKEN)
+
+except KeyboardInterrupt:
+    print("⚠️ Bot manuell gestoppt")
+
+except Exception as e:
+    print(f"❌ Kritischer Fehler: {e}")
+
+    try:
+        asyncio.run(send_log(f"❌ Bot abgestürzt: {e}"))
+    except:
+        pass
