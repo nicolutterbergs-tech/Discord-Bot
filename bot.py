@@ -2,304 +2,347 @@ import discord
 from discord.ext import commands
 import re
 import os
-import sys
 from datetime import timedelta
-import subprocess
 from flask import Flask
 from threading import Thread
-import signal
-import asyncio
 
-# Flask Webserver für UptimeRobot
-#app = Flask('')
+# =========================
+# KEEP ALIVE
+# =========================
+app = Flask("")
 
-@app.route('/')
+@app.route("/")
 def home():
     return "Bot läuft!"
 
 def run():
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host="0.0.0.0", port=5000)
 
-#def keep_alive():
-    t = Thread(target=run)
-    t.start()
+def keep_alive():
+    Thread(target=run).start()
 
-# TOKEN aus Environment Variable
+
+# =========================
+# TOKEN
+# =========================
 TOKEN = os.getenv("TOKEN")
 
-# Prefix
+if not TOKEN:
+    print("❌ TOKEN fehlt!")
+    exit()
+
+
+# =========================
+# SETTINGS
+# =========================
+LOG_CHANNEL_ID = 1509957389674348717
 PREFIX = "!"
 
-# LOG CHANNEL ID HIER EINTRAGEN
-LOG_CHANNEL_ID = 1509957389674348717
 
-# Discord Intents
+# =========================
+# BOT SETUP
+# =========================
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
 intents.members = True
-intents.voice_states = True
 
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
-# Rollenname
-ROLLEN_NAME = "Alleine Im Call"
 
-# Link Regex
+# =========================
+# LOG FUNCTION
+# =========================
+async def send_log(content):
+    channel = bot.get_channel(LOG_CHANNEL_ID)
+    if channel:
+        try:
+            await channel.send(content)
+        except Exception as e:
+            print("Log Fehler:", e)
+
+
+# =========================
+# REGEX
+# =========================
 link_regex = re.compile(
     r"(https?://|www\.|discord\.gg/|discord\.com/invite/)"
 )
 
-# Log Funktion
-async def send_log(message):
 
+# =========================
+#  Rollen vergabe
+# =========================
+ROLE_NAME = "Alleine Im Call"
+
+
+async def send_log_embed(embed):
     channel = bot.get_channel(LOG_CHANNEL_ID)
 
     if channel:
-        await channel.send(message)
+        try:
+            await channel.send(embed=embed)
+        except Exception as e:
+            print("Log Fehler:", e)
 
-# Bot gestartet
-@bot.event
-async def on_ready():
 
-    await bot.tree.sync()
-
-    print(f"Bot online als {bot.user}")
-
-    await send_log(
-        f"🟢 Bot gestartet als {bot.user}"
+async def log_role_given(member, role):
+    embed = discord.Embed(
+        title="➕ Rolle vergeben",
+        color=discord.Color.green()
     )
 
+    embed.add_field(
+        name="Mitglied",
+        value=f"{member.mention}\n`{member}`",
+        inline=True
+    )
 
-# 🔁 NEU
-@bot.event
-async def on_disconnect():
-    print("🔴 Bot disconnected!")
+    embed.add_field(
+        name="Rolle",
+        value=role.mention,
+        inline=True
+    )
 
-    try:
-        await send_log("🔴 Bot hat die Verbindung verloren / geht möglicherweise in Sleep-Modus.")
-    except:
-        pass
+    embed.set_footer(text=f"User ID: {member.id}")
 
-
-# 🔁 NEU
-@bot.event
-async def on_resumed():
-    print("🟢 Bot hat Verbindung wiederhergestellt!")
-
-    try:
-        await send_log("🟢 Bot hat sich wieder verbunden (Resumed).")
-    except:
-        pass
+    await send_log_embed(embed)
 
 
-# Restart Command
-@bot.tree.command(
-    name="restart",
-    description="Restartet den Bot"
-)
-async def restart(interaction: discord.Interaction):
+async def log_role_removed(member, role):
+    embed = discord.Embed(
+        title="➖ Rolle entfernt",
+        color=discord.Color.red()
+    )
 
-    # Nur Admins
-    if not interaction.user.guild_permissions.administrator:
+    embed.add_field(
+        name="Mitglied",
+        value=f"{member.mention}\n`{member}`",
+        inline=True
+    )
 
-        await interaction.response.send_message(
-            "❌ Keine Berechtigung.",
-            ephemeral=True
-        )
+    embed.add_field(
+        name="Rolle",
+        value=role.mention,
+        inline=True
+    )
 
+    embed.set_footer(text=f"User ID: {member.id}")
+
+    await send_log_embed(embed)
+
+
+async def update_alone_role(channel):
+    if channel is None:
         return
 
-    await interaction.response.send_message(
-        "🔄 Bot wird neugestartet..."
-    )
+    role = discord.utils.get(channel.guild.roles, name=ROLE_NAME)
 
-    await send_log(
-        f"🔄 Bot Neustart durch {interaction.user}"
-    )
+    if role is None:
+        return
 
-    await bot.close()
+    aktive_user = []
 
-    os.execv(sys.executable, [sys.executable] + sys.argv)
+    for member in channel.members:
+        voice = member.voice
+
+        if voice is None:
+            continue
+
+        if (
+            not voice.self_mute
+            and not voice.self_deaf
+            and not voice.mute
+            and not voice.deaf
+        ):
+            aktive_user.append(member)
+
+    ziel_user = None
+
+    if len(channel.members) == 1:
+        ziel_user = channel.members[0]
+
+    elif len(aktive_user) == 1:
+        ziel_user = aktive_user[0]
+
+    for member in channel.members:
+
+        hat_rolle = role in member.roles
+        soll_rolle_haben = member == ziel_user
+
+        if soll_rolle_haben and not hat_rolle:
+            try:
+                await member.add_roles(
+                    role,
+                    reason="Alleine im Call"
+                )
+
+                await log_role_given(member, role)
+
+            except Exception as e:
+                print(e)
+
+        elif not soll_rolle_haben and hat_rolle:
+            try:
+                await member.remove_roles(
+                    role,
+                    reason="Nicht mehr alleine im Call"
+                )
+
+                await log_role_removed(member, role)
+
+            except Exception as e:
+                print(e)
 
 
-# Nachrichten überwachen
+@bot.event
+async def on_voice_state_update(member, before, after):
+
+    if before.channel:
+        await update_alone_role(before.channel)
+
+    if after.channel and after.channel != before.channel:
+        await update_alone_role(after.channel)
+
+# =========================
+# READY
+# =========================
+@bot.event
+async def on_ready():
+    print(f"✅ Bot online als {bot.user}")
+
+    await send_log("🟢 Bot gestartet")
+
+
+# =========================
+# LINK PROTECTION + DM TICKET SYSTEM
+# =========================
 @bot.event
 async def on_message(message):
-
-    # Bots ignorieren
     if message.author.bot:
         return
 
-    # Admins ignorieren
-    if message.author.guild_permissions.administrator:
-        return
-
-    # Link erkannt?
-    if link_regex.search(message.content):
-
-        try:
-            await message.delete()
-
-            timeout_duration = timedelta(days=7)
-
-            await message.author.timeout(
-                timeout_duration,
-                reason="Posting links in chat"
-            )
-
+    if not message.author.guild_permissions.administrator:
+        if link_regex.search(message.content):
             try:
-                await message.author.send(
-                    f"⚠️ **Du wurdest verwarnt!**\n\n"
-                    f"Du wurdest auf dem Server für **7 Tage** getimeoutet, "
-                    f"weil du einen Link gepostet hast.\n\n"
-                    f"📨 Deine Nachricht:\n{message.content}"
+                original_content = message.content
+
+                await message.delete()
+
+                # =========================
+                # TIMEOUT
+                # =========================
+                await message.author.timeout(
+                    timedelta(days=7),
+                    reason="Link Spam"
                 )
-            except discord.Forbidden:
-                pass
 
-            await send_log(
-                f"⚠️ **Verwarnung ausgesprochen**\n\n"
-                f"👤 User: {message.author.mention} (`{message.author}`)\n"
-                f"⏱️ Timeout: 7 Tage\n"
-                f"📨 Nachricht: {message.content}\n"
-                f"📍 Channel: {message.channel.mention}"
-            )
+                # =========================
+                # DM EMBED
+                # =========================
+                embed = discord.Embed(
+                    title="🚨 Moderationsmaßnahme",
+                    description=(
+                        f"Hallo {message.author.mention},\n\n"
+                        f"du wurdest auf **{message.guild.name}** "
+                        f"für 7 Tage eingeschränkt."
+                    ),
+                    color=discord.Color.orange()
+                )
 
-        except discord.Forbidden:
+                embed.add_field(name="📋 Grund", value="Link Spam", inline=True)
+                embed.add_field(name="⏳ Dauer", value="7 Tage", inline=True)
 
-            print("Keine Rechte für Timeout.")
+                embed.add_field(
+                    name="🔗 Inhalt",
+                    value=original_content[:1024],
+                    inline=False
+                )
 
-            await send_log("❌ Keine Rechte für Timeout.")
+                embed.set_footer(text="Automatische Moderation")
 
-        except Exception as e:
+                if message.guild.icon:
+                    embed.set_thumbnail(url=message.guild.icon.url)
 
-            print(f"Fehler: {e}")
 
-            await send_log(f"❌ Fehler: {e}")
+                # =========================
+                # DM SENDEN
+                # =========================
+                try:
+                    dm_msg = await message.author.send(embed=embed)
+                except discord.Forbidden:
+                    dm_msg = None
+
+
+                # =========================
+                # DM TICKET SYSTEM
+                # =========================
+                class AppealView(discord.ui.View):
+                    def __init__(self):
+                        super().__init__(timeout=None)
+
+                    @discord.ui.button(
+                        label="📝 Einspruch starten",
+                        style=discord.ButtonStyle.primary
+                    )
+                    async def start(self, interaction: discord.Interaction, button: discord.ui.Button):
+
+                        await interaction.response.send_message(
+                            "✍️ Bitte schreibe jetzt deinen Einspruch hier in den Chat.\n"
+                            "Der Bot sendet ihn automatisch an das Moderationsteam.",
+                            ephemeral=True
+                        )
+
+                        def check(m):
+                            return m.author == interaction.user and isinstance(m.channel, discord.DMChannel)
+
+                        try:
+                            msg = await bot.wait_for("message", timeout=300.0, check=check)
+
+                            await send_log(
+                                f"📩 EINSPRUCH ERHALTEN\n"
+                                f"👤 User: {interaction.user} ({interaction.user.id})\n"
+                                f"🏛️ Server: {message.guild.name}\n"
+                                f"📄 Inhalt: {msg.content}\n"
+                                f"🔗 Original Nachricht: {original_content}"
+                            )
+
+                            await interaction.user.send(
+                                "✅ Dein Einspruch wurde an das Moderationsteam weitergeleitet."
+                            )
+
+                        except Exception:
+                            await interaction.user.send("⏳ Zeit abgelaufen. Bitte erneut versuchen.")
+
+
+                # Button nur in DM schicken
+                if dm_msg:
+                    try:
+                        await message.author.send(view=AppealView())
+                    except:
+                        pass
+
+
+                # =========================
+                # LOG
+                # =========================
+                await send_log(
+                    f"🚨 Link gelöscht & Timeout vergeben\n"
+                    f"👤 User: {message.author} ({message.author.id})\n"
+                    f"📄 Nachricht: {original_content}\n"
+                    f"📍 Kanal: {message.channel.mention}\n"
+                    f"⏰ Timeout: 7 Tage"
+                )
+
+            except Exception as e:
+                await send_log(f"❌ Fehler: {e}")
 
     await bot.process_commands(message)
 
 
-# Voice Rollen System
-@bot.event
-async def on_voice_state_update(member, before, after):
-
-    guild = member.guild
-    rolle = discord.utils.get(guild.roles, name=ROLLEN_NAME)
-
-    if rolle is None:
-
-        print("Rolle nicht gefunden")
-
-        await send_log("❌ Rolle nicht gefunden.")
-
-        return
-
-    for channel in guild.voice_channels:
-
-        menschen = [m for m in channel.members if not m.bot]
-
-        if len(menschen) == 1:
-
-            user = menschen[0]
-
-            if rolle not in user.roles:
-
-                await user.add_roles(rolle)
-
-                print(f"{user} hat die Rolle bekommen")
-
-                await send_log(
-                    f"🎧 {user} hat die Rolle '{ROLLEN_NAME}' bekommen."
-                )
-
-        else:
-
-            for user in menschen:
-
-                if rolle in user.roles:
-
-                    await user.remove_roles(rolle)
-
-                    print(f"{user} Rolle entfernt")
-
-                    await send_log(
-                        f"❌ {user} Rolle '{ROLLEN_NAME}' entfernt."
-                    )
-
-
-# 🔁 NEU (Shutdown Handler)
-def handle_shutdown(signum, frame):
-    print("⚠️ Bot wird beendet!")
-
-    try:
-        loop = bot.loop
-        if loop and loop.is_running():
-            asyncio.run_coroutine_threadsafe(
-                send_log("⚠️ Bot wird beendet (Shutdown / Sleep / Restart)."),
-                loop
-            )
-    except:
-        pass
-
-
-signal.signal(signal.SIGINT, handle_shutdown)
-signal.signal(signal.SIGTERM, handle_shutdown)
-
-
-
-
 # =========================
-# /write SYSTEM (EINFACH)
+# START
 # =========================
-reaction_roles = {}
-
-class WriteModal(discord.ui.Modal, title="Nachricht erstellen"):
-    message_text = discord.ui.TextInput(
-        label="Nachricht",
-        style=discord.TextStyle.paragraph,
-        required=True,
-        max_length=2000
-    )
-
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.channel.send(self.message_text.value)
-        await interaction.response.send_message(
-            "✅ Nachricht gesendet.",
-            ephemeral=True
-        )
-
-@bot.tree.command(
-    name="write",
-    description="Nachricht senden"
-)
-async def write(interaction: discord.Interaction):
-
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message(
-            "❌ Keine Berechtigung.",
-            ephemeral=True
-        )
-        return
-
-    await interaction.response.send_modal(WriteModal())
-
-# Keep Alive starten
-keep_alive()
-
-
-# 🔄 ERSETZT (Bot Start sicherer gemacht)
-try:
+if __name__ == "__main__":
+    keep_alive()
     bot.run(TOKEN)
-
-except KeyboardInterrupt:
-    print("⚠️ Bot manuell gestoppt")
-
-except Exception as e:
-    print(f"❌ Kritischer Fehler: {e}")
-
-    try:
-        asyncio.run(send_log(f"❌ Bot abgestürzt: {e}"))
-    except:
-        pass
