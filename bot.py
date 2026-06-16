@@ -233,7 +233,7 @@ async def on_message(message):
                 # TIMEOUT
                 # =========================
                 await message.author.timeout(
-                    timedelta(days=7),
+                    timedelta(days=1),
                     reason="Link Spam"
                 )
 
