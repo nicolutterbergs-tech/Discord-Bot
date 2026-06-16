@@ -37,7 +37,8 @@ if not TOKEN:
 # =========================
 LOG_CHANNEL_ID = 1509957389674348717
 PREFIX = "!"
-
+CREATOR_CHANNEL_ID = 1516541407853281331
+CATEGORY_ID = 1349426167266017384
 
 # =========================
 # BOT SETUP
@@ -48,6 +49,56 @@ intents.guilds = True
 intents.members = True
 
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
+
+# =========================
+# BOT SETUP
+# =========================
+@bot.event
+async def on_voice_state_update(member, before, after):
+
+    # === Creator Channel betreten ===
+    if after.channel and after.channel.id == CREATOR_CHANNEL_ID:
+
+        guild = member.guild
+        category = guild.get_channel(CATEGORY_ID)
+
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(connect=True, view_channel=True),
+            member: discord.PermissionOverwrite(
+                connect=True,
+                manage_channels=True,
+                move_members=True,
+                mute_members=True,
+                deafen_members=True
+            )
+        }
+
+        channel = await guild.create_voice_channel(
+            name=f"🔊 {member.display_name}'s Room",
+            category=category,
+            overwrites=overwrites
+        )
+
+        # User direkt in neuen Channel verschieben
+        await member.move_to(channel)
+
+        # Channel merken (wichtig für späteres Löschen)
+        if not hasattr(bot, "temp_channels"):
+            bot.temp_channels = {}
+
+        bot.temp_channels[channel.id] = member.id
+
+
+    # === Channel löschen wenn leer ===
+    if before.channel:
+
+        channel = before.channel
+
+        if hasattr(bot, "temp_channels") and channel.id in bot.temp_channels:
+
+            if len(channel.members) == 0:
+                await channel.delete()
+                del bot.temp_channels[channel.id]
 
 
 # =========================
