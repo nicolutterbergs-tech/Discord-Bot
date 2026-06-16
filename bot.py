@@ -285,10 +285,9 @@ async def on_message(message):
                 # =========================
                 # TIMEOUT
                 # =========================
-                td = timedelta(days=1)
-                print("DEBUG TIMEOUT:", td)
-                
-                    await message.author.timeout(td, reason="Link Spam")
+td = timedelta(days=1)
+print("DEBUG TIMEOUT:", td)
+    await message.author.timeout(td, reason="Link Spam")
 
                 # =========================
                 # DM EMBED
