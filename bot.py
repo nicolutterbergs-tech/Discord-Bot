@@ -37,6 +37,7 @@ if not TOKEN:
 # =========================
 LOG_CHANNEL_ID = 1509957389674348717
 PREFIX = "!"
+
 CREATOR_CHANNEL_ID = 1516541407853281331
 CATEGORY_ID = 1349426167266017384
 
@@ -51,7 +52,7 @@ intents.members = True
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
 # =========================
-# BOT SETUP
+# Voice
 # =========================
 @bot.event
 async def on_voice_state_update(member, before, after):
