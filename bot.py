@@ -297,13 +297,13 @@ async def on_message(message):
                     description=(
                         f"Hallo {message.author.mention},\n\n"
                         f"du wurdest auf **{message.guild.name}** "
-                        f"für 1 Tage eingeschränkt."
+                        f"für 1 Tag eingeschränkt."
                     ),
                     color=discord.Color.orange()
                 )
 
                 embed.add_field(name="📋 Grund", value="Link Spam", inline=True)
-                embed.add_field(name="⏳ Dauer", value="1 Tage", inline=True)
+                embed.add_field(name="⏳ Dauer", value="1 Tag", inline=True)
 
                 embed.add_field(
                     name="🔗 Inhalt",
