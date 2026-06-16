@@ -5,6 +5,7 @@ import os
 from datetime import timedelta
 from flask import Flask
 from threading import Thread
+from datetime import timedelta
 
 # =========================
 # KEEP ALIVE
@@ -284,10 +285,10 @@ async def on_message(message):
                 # =========================
                 # TIMEOUT
                 # =========================
-                await message.author.timeout(
-                    timedelta(days=1),
-                    reason="Link Spam"
-                )
+                td = timedelta(days=1)
+                print("DEBUG TIMEOUT:", td)
+
+                    await message.author.timeout(td, reason="Link Spam")
 
                 # =========================
                 # DM EMBED
@@ -383,7 +384,7 @@ async def on_message(message):
                     f"👤 User: {message.author} ({message.author.id})\n"
                     f"📄 Nachricht: {original_content}\n"
                     f"📍 Kanal: {message.channel.mention}\n"
-                    f"⏰ Timeout: 1 Tage"
+                    f"⏰ Timeout: 1 Tag"
                 )
 
             except Exception as e:
