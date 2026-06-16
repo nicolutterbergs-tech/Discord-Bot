@@ -296,13 +296,13 @@ async def on_message(message):
                     description=(
                         f"Hallo {message.author.mention},\n\n"
                         f"du wurdest auf **{message.guild.name}** "
-                        f"für 7 Tage eingeschränkt."
+                        f"für 1 Tage eingeschränkt."
                     ),
                     color=discord.Color.orange()
                 )
 
                 embed.add_field(name="📋 Grund", value="Link Spam", inline=True)
-                embed.add_field(name="⏳ Dauer", value="7 Tage", inline=True)
+                embed.add_field(name="⏳ Dauer", value="1 Tage", inline=True)
 
                 embed.add_field(
                     name="🔗 Inhalt",
@@ -382,7 +382,7 @@ async def on_message(message):
                     f"👤 User: {message.author} ({message.author.id})\n"
                     f"📄 Nachricht: {original_content}\n"
                     f"📍 Kanal: {message.channel.mention}\n"
-                    f"⏰ Timeout: 7 Tage"
+                    f"⏰ Timeout: 1 Tage"
                 )
 
             except Exception as e:
