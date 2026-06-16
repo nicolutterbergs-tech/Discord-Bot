@@ -282,12 +282,14 @@ async def on_message(message):
 
                 await message.delete()
 
-                # =========================
-                # TIMEOUT
-                # =========================
+# =========================
+# TIMEOUT
+# =========================
+
 td = timedelta(days=1)
 print("DEBUG TIMEOUT:", td)
-    await message.author.timeout(td, reason="Link Spam")
+
+await message.author.timeout(td, reason="Link Spam")
 
                 # =========================
                 # DM EMBED
