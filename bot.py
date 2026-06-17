@@ -322,6 +322,85 @@ async def on_message(message):
                     except:
                         pass
 
+@bot.event
+async def on_voice_state_update(member, before, after):
+
+    try:
+
+        # =========================
+        # CREATE TEMP VOICE
+        # =========================
+        if after.channel and after.channel.id == CREATOR_CHANNEL_ID:
+
+            guild = member.guild
+            category = guild.get_channel(CATEGORY_ID)
+
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(
+                    view_channel=True,
+                    connect=True
+                ),
+                member: discord.PermissionOverwrite(
+                    view_channel=True,
+                    connect=True,
+                    manage_channels=True,
+                    move_members=True,
+                    mute_members=True,
+                    deafen_members=True
+                )
+            }
+
+            channel = await guild.create_voice_channel(
+                name=f"🔊 {member.display_name}'s Room",
+                category=category,
+                overwrites=overwrites
+            )
+
+            await member.move_to(channel)
+
+            # speichern für delete
+            if not hasattr(bot, "temp_channels"):
+                bot.temp_channels = {}
+
+            bot.temp_channels[channel.id] = member.id
+
+            # =========================
+            # LOG
+            # =========================
+            await send_log(
+                f"🎤 Temp Voice erstellt\n"
+                f"👤 Owner: {member} ({member.id})\n"
+                f"🏠 Channel: {channel.name} ({channel.id})"
+            )
+
+
+        # =========================
+        # DELETE IF EMPTY
+        # =========================
+        if before.channel:
+
+            channel = before.channel
+
+            if hasattr(bot, "temp_channels") and channel.id in bot.temp_channels:
+
+                if len(channel.members) == 0:
+
+                    await channel.delete()
+
+                    owner_id = bot.temp_channels[channel.id]
+                    del bot.temp_channels[channel.id]
+
+                    # =========================
+                    # LOG
+                    # =========================
+                    await send_log(
+                        f"🗑️ Temp Voice gelöscht\n"
+                        f"🏠 Channel: {channel.name} ({channel.id})\n"
+                        f"👤 Owner ID: {owner_id}"
+                    )
+
+    except Exception as e:
+        await send_log(f"❌ Voice System Fehler: {e}")
 
                 # =========================
                 # LOG
