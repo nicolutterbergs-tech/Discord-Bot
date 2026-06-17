@@ -585,13 +585,11 @@ async def tempvc(ctx):
     channel = get_voice_temp_channel(ctx)
     if channel is None:
         return await ctx.send(
-            "Du musst in deinem Temp Voice sein, um das Overlay zu benutzen.",
-            ephemeral=True
+            "Du musst in deinem Temp Voice sein, um das Overlay zu benutzen."
         )
     if not is_temp_owner(ctx.author, channel):
         return await ctx.send(
-            "Nur der Besitzer kann das Overlay benutzen.",
-            ephemeral=True
+            "Nur der Besitzer kann das Overlay benutzen."
         )
 
     embed = discord.Embed(
@@ -616,18 +614,6 @@ async def on_ready():
     print(f"✅ Bot online als {bot.user}")
 
     await send_log("🟢 Bot gestartet")
-
-
-# =========================
-# TEMP VOICE CONTROL
-# =========================
-@bot.group(name="tempvc", invoke_without_command=True)
-async def tempvc(ctx):
-    await ctx.send(
-        "Verwende `!tempvc <aktion>`: "
-        "name, limit, privacy, waiting, chat, trust, untrust, "
-        "invite, kick, region, block, unblock, claim, transfer, delete"
-    )
 
 
 def format_member_list(guild, ids):
