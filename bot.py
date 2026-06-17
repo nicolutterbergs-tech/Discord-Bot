@@ -51,6 +51,7 @@ intents.members = True
 
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 bot.temp_channels = {}
+bot.active_temp_views = []
 
 
 @bot.command(name="ping")
@@ -790,6 +791,7 @@ async def tempvc(ctx):
     embed.add_field(name="Sonstiges", value="Kick / Claim / Transfer / Delete", inline=False)
 
     view = TempVCOverlay(ctx.author.id)
+    bot.active_temp_views.append(view)
     await ctx.send(embed=embed, view=view)
 
 
@@ -809,6 +811,7 @@ async def setupvc_prefix(ctx: commands.Context):
     embed.add_field(name="Sonstiges", value="Kick / Claim / Transfer / Delete", inline=False)
 
     view = TempVCOverlay(None)
+    bot.active_temp_views.append(view)
     await ctx.send("Temp Voice Overlay wurde eingerichtet.", embed=embed, view=view)
 
 
@@ -832,6 +835,7 @@ async def setupvc(interaction: discord.Interaction):
     embed.add_field(name="Sonstiges", value="Kick / Claim / Transfer / Delete", inline=False)
 
     view = TempVCOverlay(None)
+    bot.active_temp_views.append(view)
     await interaction.response.send_message(
         "Temp Voice Overlay wurde eingerichtet.", embed=embed, view=view
     )
