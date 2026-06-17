@@ -777,6 +777,26 @@ async def tempvc(ctx):
     await ctx.send(embed=embed, view=view)
 
 
+@bot.command(name="setupvc")
+@commands.has_permissions(administrator=True)
+async def setupvc_prefix(ctx: commands.Context):
+    embed = discord.Embed(
+        title="🎛️ Temp Voice Steuerung",
+        description=(
+            "Klicke auf die Buttons, um deinen Temp Voice zu konfigurieren.\n"
+            "Alle können das Overlay nutzen, wenn sie sich in ihrem Temp Voice befinden."
+        ),
+        color=discord.Color.blurple()
+    )
+    embed.add_field(name="Schnell starten", value="Name / Limit / Region / Chat / Privacy", inline=False)
+    embed.add_field(name="Zugriff verwalten", value="Trust / Untrust / Invite / Block / Unblock", inline=False)
+    embed.add_field(name="Sonstiges", value="Kick / Claim / Transfer / Delete", inline=False)
+
+    view = TempVCOverlay(None)
+    bot.add_view(view)
+    await ctx.send("Temp Voice Overlay wurde eingerichtet.", embed=embed, view=view)
+
+
 @bot.tree.command(name="setupvc", description="Erstellt das Temp-Voice-Overlay für den Server.")
 async def setupvc(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
@@ -811,6 +831,11 @@ async def on_ready():
 
     try:
         await bot.tree.sync()
+        for guild in bot.guilds:
+            try:
+                await bot.tree.sync(guild=guild)
+            except Exception as e:
+                print(f"Fehler bei Guild-Sync {guild.id}: {e}")
     except Exception as e:
         print("Fehler beim Synchronisieren der Slash-Commands:", e)
 
