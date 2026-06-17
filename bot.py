@@ -412,8 +412,8 @@ async def on_voice_state_update(member, before, after):
                         f"👤 Owner ID: {owner_id}"
                     )
 
-    except Exception as e:
-        await send_log(f"❌ Voice System Fehler: {e}")
+                except Exception as e:
+                    await send_log(f"❌ Voice System Fehler: {e}")
 
                 # =========================
                 # LOGs timeout
