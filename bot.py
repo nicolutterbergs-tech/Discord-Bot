@@ -327,7 +327,7 @@ async def on_message(message):
         # =========================
         # CREATE TEMP VOICE
         # =========================
-        if after.channel and after.channel.id == 1516541407853281331
+        if after.channel and after.channel.id == CREATOR_CHANNEL_ID:1516541407853281331:
 
             guild = member.guild
             category = guild.get_channel(CATEGORY_ID)
