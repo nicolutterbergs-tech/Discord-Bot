@@ -394,47 +394,19 @@ async def on_voice_state_update(member, before, after):
 
                 try:
                     await channel.delete()
-                except Exception as e:
-                    print("Delete Error:", e)
-
-                await send_log(
-                    f"🗑️ Temp Voice gelöscht\n"
-                    f"🏠 Channel: {channel.name} ({channel.id})\n"
-                    f"👤 Owner ID: {owner_id}"
-                )
-
-                    # =========================
-                    # LOG tempvoice
-                    # =========================
                     await send_log(
                         f"🗑️ Temp Voice gelöscht\n"
                         f"🏠 Channel: {channel.name} ({channel.id})\n"
                         f"👤 Owner ID: {owner_id}"
                     )
-
                 except Exception as e:
-                    await send_log(f"❌ Voice System Fehler: {e}")
-
-                # =========================
-                # LOGs timeout
-                # =========================
-                await send_log(
-                    f"🚨 Link gelöscht & Timeout vergeben\n"
-                    f"👤 User: {message.author} ({message.author.id})\n"
-                    f"📄 Nachricht: {original_content}\n"
-                    f"📍 Kanal: {message.channel.mention}\n"
-                    f"⏰ Timeout: 1 Tag"
-                )
-
-            except Exception as e:
-                await send_log(f"❌ Fehler: {e}")
+                    print("Delete Error:", e)
 
     await bot.process_commands(message)
 
 
 # =========================
 # START
-# =========================
 if __name__ == "__main__":
     keep_alive()
     bot.run(TOKEN)
