@@ -53,6 +53,23 @@ bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 bot.temp_channels = {}
 
 
+@bot.command(name="ping")
+async def ping(ctx: commands.Context):
+    await ctx.send("Pong!")
+
+
+@bot.event
+async def on_command_error(ctx: commands.Context, error):
+    if isinstance(error, commands.CommandNotFound):
+        await ctx.send("Unbekannter Befehl. Versuch `!ping`.")
+        return
+    print(f"Command Error: {error}")
+    try:
+        await ctx.send(f"Fehler: {error}")
+    except Exception:
+        pass
+
+
 # =========================
 # LOG FUNCTION
 # =========================
@@ -828,6 +845,8 @@ async def setupvc(interaction: discord.Interaction):
 @bot.event
 async def on_ready():
     print(f"✅ Bot online als {bot.user}")
+    print("Loaded prefix commands:", [cmd.name for cmd in bot.commands])
+    print("Loaded slash commands:", [cmd.name for cmd in bot.tree.commands])
 
     try:
         await bot.tree.sync()
@@ -1186,6 +1205,9 @@ async def tempvc_delete(ctx):
 async def on_message(message):
     if message.author.bot:
         return
+
+    if message.content.startswith(PREFIX):
+        print(f"Received prefix message from {message.author}: {message.content}")
 
     if not message.author.guild_permissions.administrator:
         if link_regex.search(message.content):
