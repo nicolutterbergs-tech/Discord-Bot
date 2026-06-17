@@ -64,9 +64,9 @@ async def on_command_error(ctx: commands.Context, error):
     if isinstance(error, commands.CommandNotFound):
         await ctx.send("Unbekannter Befehl. Versuch `!ping`.")
         return
-    print(f"Command Error: {error}")
+    print(f"Command Error: {type(error).__name__}: {error}")
     try:
-        await ctx.send(f"Fehler: {error}")
+        await ctx.send(f"Fehler: {type(error).__name__}: {error}")
     except Exception:
         pass
 
@@ -459,6 +459,7 @@ class TempVCOverlay(discord.ui.View):
         self.owner_id = owner_id
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        print(f"TempVCOverlay interaction_check: user={interaction.user} owner_id={self.owner_id}")
         if self.owner_id is None:
             return True
         if interaction.user.id != self.owner_id:
@@ -473,7 +474,8 @@ class TempVCOverlay(discord.ui.View):
         channel = get_member_voice_temp_channel(interaction.user)
         if channel is None:
             await interaction.response.send_message(
-                "Du musst in deinem Temp Voice sein, um diese Aktion zu nutzen.",
+                "Du musst dich zuerst in deinem Temp Voice befinden, um diese Aktion zu nutzen. "
+                "Betritt dazu den Erstelle-Channel und erstelle einen Temp Voice.",
                 ephemeral=True
             )
         return channel
@@ -503,7 +505,7 @@ class TempVCOverlay(discord.ui.View):
             return None
         return parse_member_guild_member(interaction.guild, content)
 
-    @discord.ui.button(label="Name", style=discord.ButtonStyle.secondary, emoji="✏️")
+    @discord.ui.button(label="Name", style=discord.ButtonStyle.secondary, emoji="✏️", custom_id="tempvc_name")
     async def name_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         channel = await self._get_temp_channel(interaction)
         if channel is None:
@@ -528,7 +530,7 @@ class TempVCOverlay(discord.ui.View):
                 f"Fehler beim Ändern des Namens: {e}", ephemeral=True
             )
 
-    @discord.ui.button(label="Limit", style=discord.ButtonStyle.secondary, emoji="🔢")
+    @discord.ui.button(label="Limit", style=discord.ButtonStyle.secondary, emoji="🔢", custom_id="tempvc_limit")
     async def limit_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         channel = await self._get_temp_channel(interaction)
         if channel is None:
@@ -555,7 +557,7 @@ class TempVCOverlay(discord.ui.View):
                 f"Fehler beim Setzen des Limits: {e}", ephemeral=True
             )
 
-    @discord.ui.button(label="Region", style=discord.ButtonStyle.secondary, emoji="🌍")
+    @discord.ui.button(label="Region", style=discord.ButtonStyle.secondary, emoji="🌍", custom_id="tempvc_region")
     async def region_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         channel = await self._get_temp_channel(interaction)
         if channel is None:
@@ -575,7 +577,7 @@ class TempVCOverlay(discord.ui.View):
                 f"Fehler beim Setzen der Region: {e}", ephemeral=True
             )
 
-    @discord.ui.button(label="Privacy", style=discord.ButtonStyle.secondary, emoji="🔒")
+    @discord.ui.button(label="Privacy", style=discord.ButtonStyle.secondary, emoji="🔒", custom_id="tempvc_privacy")
     async def privacy_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         channel = await self._get_temp_channel(interaction)
         if channel is None:
@@ -588,7 +590,7 @@ class TempVCOverlay(discord.ui.View):
             f"Privatsphäre {state}.", ephemeral=True
         )
 
-    @discord.ui.button(label="Waiting", style=discord.ButtonStyle.secondary, emoji="⏳")
+    @discord.ui.button(label="Waiting", style=discord.ButtonStyle.secondary, emoji="⏳", custom_id="tempvc_waiting")
     async def waiting_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         channel = await self._get_temp_channel(interaction)
         if channel is None:
@@ -600,7 +602,7 @@ class TempVCOverlay(discord.ui.View):
             f"Warteraum {state}.", ephemeral=True
         )
 
-    @discord.ui.button(label="Chat", style=discord.ButtonStyle.secondary, emoji="💬")
+    @discord.ui.button(label="Chat", style=discord.ButtonStyle.secondary, emoji="💬", custom_id="tempvc_chat")
     async def chat_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         channel = await self._get_temp_channel(interaction)
         if channel is None:
@@ -631,7 +633,7 @@ class TempVCOverlay(discord.ui.View):
                 f"Fehler beim Erstellen des Chats: {e}", ephemeral=True
             )
 
-    @discord.ui.button(label="Trust", style=discord.ButtonStyle.success, emoji="✅")
+    @discord.ui.button(label="Trust", style=discord.ButtonStyle.success, emoji="✅", custom_id="tempvc_trust")
     async def trust_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         channel = await self._get_temp_channel(interaction)
         if channel is None:
@@ -646,7 +648,7 @@ class TempVCOverlay(discord.ui.View):
         await channel.set_permissions(target, connect=True, view_channel=True)
         await interaction.followup.send(f"{target.mention} ist jetzt trusted.", ephemeral=True)
 
-    @discord.ui.button(label="Untrust", style=discord.ButtonStyle.danger, emoji="❌")
+    @discord.ui.button(label="Untrust", style=discord.ButtonStyle.danger, emoji="❌", custom_id="tempvc_untrust")
     async def untrust_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         channel = await self._get_temp_channel(interaction)
         if channel is None:
@@ -661,7 +663,7 @@ class TempVCOverlay(discord.ui.View):
         await channel.set_permissions(target, overwrite=None)
         await interaction.followup.send(f"{target.mention} ist nicht mehr trusted.", ephemeral=True)
 
-    @discord.ui.button(label="Invite", style=discord.ButtonStyle.primary, emoji="📩")
+    @discord.ui.button(label="Invite", style=discord.ButtonStyle.primary, emoji="📩", custom_id="tempvc_invite")
     async def invite_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         channel = await self._get_temp_channel(interaction)
         if channel is None:
@@ -676,7 +678,7 @@ class TempVCOverlay(discord.ui.View):
         await channel.set_permissions(target, connect=True, view_channel=True)
         await interaction.followup.send(f"{target.mention} wurde eingeladen.", ephemeral=True)
 
-    @discord.ui.button(label="Kick", style=discord.ButtonStyle.danger, emoji="👢")
+    @discord.ui.button(label="Kick", style=discord.ButtonStyle.danger, emoji="👢", custom_id="tempvc_kick")
     async def kick_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         channel = await self._get_temp_channel(interaction)
         if channel is None:
@@ -693,7 +695,7 @@ class TempVCOverlay(discord.ui.View):
         else:
             await interaction.followup.send("Dieser Benutzer ist nicht im Temp Voice.", ephemeral=True)
 
-    @discord.ui.button(label="Block", style=discord.ButtonStyle.danger, emoji="⛔")
+    @discord.ui.button(label="Block", style=discord.ButtonStyle.danger, emoji="⛔", custom_id="tempvc_block")
     async def block_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         channel = await self._get_temp_channel(interaction)
         if channel is None:
@@ -713,7 +715,7 @@ class TempVCOverlay(discord.ui.View):
                 pass
         await interaction.followup.send(f"{target.mention} wurde blockiert.", ephemeral=True)
 
-    @discord.ui.button(label="Unblock", style=discord.ButtonStyle.success, emoji="🚫")
+    @discord.ui.button(label="Unblock", style=discord.ButtonStyle.success, emoji="🚫", custom_id="tempvc_unblock")
     async def unblock_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         channel = await self._get_temp_channel(interaction)
         if channel is None:
@@ -728,7 +730,7 @@ class TempVCOverlay(discord.ui.View):
         await channel.set_permissions(target, overwrite=None)
         await interaction.followup.send(f"{target.mention} ist nicht mehr blockiert.", ephemeral=True)
 
-    @discord.ui.button(label="Transfer", style=discord.ButtonStyle.secondary, emoji="🔁")
+    @discord.ui.button(label="Transfer", style=discord.ButtonStyle.secondary, emoji="🔁", custom_id="tempvc_transfer")
     async def transfer_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         channel = await self._get_temp_channel(interaction)
         if channel is None:
@@ -742,7 +744,7 @@ class TempVCOverlay(discord.ui.View):
         data["owner"] = target.id
         await interaction.followup.send(f"Besitz wurde an {target.mention} übertragen.", ephemeral=True)
 
-    @discord.ui.button(label="Delete", style=discord.ButtonStyle.danger, emoji="🗑️")
+    @discord.ui.button(label="Delete", style=discord.ButtonStyle.danger, emoji="🗑️", custom_id="tempvc_delete")
     async def delete_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         channel = await self._get_temp_channel(interaction)
         if channel is None:
