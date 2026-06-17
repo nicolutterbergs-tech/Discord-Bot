@@ -732,6 +732,19 @@ class TempVCOverlay(discord.ui.View):
             "Temp Voice wurde gelöscht.", ephemeral=True
         )
 
+    async def on_error(self, error: Exception, item: discord.ui.Item, interaction: discord.Interaction) -> None:
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    f"Ein Fehler ist aufgetreten: {error}", ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    f"Ein Fehler ist aufgetreten: {error}", ephemeral=True
+                )
+        except Exception:
+            pass
+
 
 @bot.group(name="tempvc", invoke_without_command=True)
 async def tempvc(ctx):
@@ -757,7 +770,9 @@ async def tempvc(ctx):
     embed.add_field(name="Zugriff verwalten", value="Trust / Untrust / Invite / Block / Unblock", inline=False)
     embed.add_field(name="Sonstiges", value="Kick / Claim / Transfer / Delete", inline=False)
 
-    await ctx.send(embed=embed, view=TempVCOverlay(ctx.author.id))
+    view = TempVCOverlay(ctx.author.id)
+    bot.add_view(view)
+    await ctx.send(embed=embed, view=view)
 
 # =========================
 # READY
