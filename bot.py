@@ -1,3 +1,4 @@
+import asyncio
 import discord
 from discord.ext import commands
 import re
@@ -436,7 +437,7 @@ class RegionModal(discord.ui.Modal, title="Temp Voice Region setzen"):
 
 class TempVCOverlay(discord.ui.View):
     def __init__(self, owner_id: int):
-        super().__init__(timeout=180)
+        super().__init__(timeout=None)
         self.owner_id = owner_id
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -457,13 +458,102 @@ class TempVCOverlay(discord.ui.View):
             )
         return channel
 
+    async def _ask_for_input(self, interaction, prompt: str, timeout: float = 60.0):
+        await interaction.response.send_message(prompt, ephemeral=True)
+
+        def check(message):
+            return (
+                message.author == interaction.user
+                and message.channel == interaction.channel
+            )
+
+        try:
+            message = await bot.wait_for("message", timeout=timeout, check=check)
+            return message.content.strip()
+        except asyncio.TimeoutError:
+            await interaction.followup.send(
+                "Zeit abgelaufen. Bitte erneut versuchen.",
+                ephemeral=True
+            )
+            return None
+
+    async def _ask_for_member(self, interaction, prompt: str):
+        content = await self._ask_for_input(interaction, prompt)
+        if not content:
+            return None
+        return parse_member_guild_member(interaction.guild, content)
+
     @discord.ui.button(label="Name", style=discord.ButtonStyle.secondary, emoji="✏️")
     async def name_button(self, button: discord.ui.Button, interaction: discord.Interaction):
-        await interaction.response.send_modal(NameModal())
+        channel = await self._get_temp_channel(interaction)
+        if channel is None:
+            return
+
+        value = await self._ask_for_input(interaction, "Bitte sende den neuen Namen für den Temp Voice Channel.")
+        if not value:
+            return
+
+        try:
+            await channel.edit(name=value)
+            data = get_temp_channel_data(channel)
+            if data.get("chat_channel_id"):
+                chat_channel = interaction.guild.get_channel(data["chat_channel_id"])
+                if chat_channel:
+                    await chat_channel.edit(name=f"{value}-chat")
+            await interaction.followup.send(
+                f"Name geändert zu `{value}`.", ephemeral=True
+            )
+        except Exception as e:
+            await interaction.followup.send(
+                f"Fehler beim Ändern des Namens: {e}", ephemeral=True
+            )
 
     @discord.ui.button(label="Limit", style=discord.ButtonStyle.secondary, emoji="🔢")
     async def limit_button(self, button: discord.ui.Button, interaction: discord.Interaction):
-        await interaction.response.send_modal(LimitModal())
+        channel = await self._get_temp_channel(interaction)
+        if channel is None:
+            return
+
+        value = await self._ask_for_input(interaction, "Bitte sende das neue Nutzerlimit (0-99).")
+        if not value:
+            return
+
+        try:
+            limit = int(value)
+            if limit < 0 or limit > 99:
+                raise ValueError()
+            await channel.edit(user_limit=limit)
+            await interaction.followup.send(
+                f"Limit gesetzt auf {limit}.", ephemeral=True
+            )
+        except ValueError:
+            await interaction.followup.send(
+                "Bitte gib eine Zahl zwischen 0 und 99 an.", ephemeral=True
+            )
+        except Exception as e:
+            await interaction.followup.send(
+                f"Fehler beim Setzen des Limits: {e}", ephemeral=True
+            )
+
+    @discord.ui.button(label="Region", style=discord.ButtonStyle.secondary, emoji="🌍")
+    async def region_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        channel = await self._get_temp_channel(interaction)
+        if channel is None:
+            return
+
+        value = await self._ask_for_input(interaction, "Bitte sende die gewünschte Region (z.B. europe, us-west).")
+        if not value:
+            return
+
+        try:
+            await channel.edit(rtc_region=value)
+            await interaction.followup.send(
+                f"Region gesetzt auf `{value}`.", ephemeral=True
+            )
+        except Exception as e:
+            await interaction.followup.send(
+                f"Fehler beim Setzen der Region: {e}", ephemeral=True
+            )
 
     @discord.ui.button(label="Privacy", style=discord.ButtonStyle.secondary, emoji="🔒")
     async def privacy_button(self, button: discord.ui.Button, interaction: discord.Interaction):
@@ -523,51 +613,114 @@ class TempVCOverlay(discord.ui.View):
 
     @discord.ui.button(label="Trust", style=discord.ButtonStyle.success, emoji="✅")
     async def trust_button(self, button: discord.ui.Button, interaction: discord.Interaction):
-        await interaction.response.send_modal(MemberActionModal("trust"))
-
-    @discord.ui.button(label="Untrust", style=discord.ButtonStyle.danger, emoji="❌")
-    async def untrust_button(self, button: discord.ui.Button, interaction: discord.Interaction):
-        await interaction.response.send_modal(MemberActionModal("untrust"))
-
-    @discord.ui.button(label="Invite", style=discord.ButtonStyle.primary, emoji="📩")
-    async def invite_button(self, button: discord.ui.Button, interaction: discord.Interaction):
-        await interaction.response.send_modal(MemberActionModal("invite"))
-
-    @discord.ui.button(label="Kick", style=discord.ButtonStyle.danger, emoji="👢")
-    async def kick_button(self, button: discord.ui.Button, interaction: discord.Interaction):
-        await interaction.response.send_modal(MemberActionModal("kick"))
-
-    @discord.ui.button(label="Region", style=discord.ButtonStyle.secondary, emoji="🌍")
-    async def region_button(self, button: discord.ui.Button, interaction: discord.Interaction):
-        await interaction.response.send_modal(RegionModal())
-
-    @discord.ui.button(label="Block", style=discord.ButtonStyle.danger, emoji="⛔")
-    async def block_button(self, button: discord.ui.Button, interaction: discord.Interaction):
-        await interaction.response.send_modal(MemberActionModal("block"))
-
-    @discord.ui.button(label="Unblock", style=discord.ButtonStyle.success, emoji="🚫")
-    async def unblock_button(self, button: discord.ui.Button, interaction: discord.Interaction):
-        await interaction.response.send_modal(MemberActionModal("unblock"))
-
-    @discord.ui.button(label="Claim", style=discord.ButtonStyle.primary, emoji="🛡️")
-    async def claim_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         channel = await self._get_temp_channel(interaction)
         if channel is None:
             return
+        target = await self._ask_for_member(interaction, "Bitte sende die Erwähnung oder ID des Benutzers, der trusted werden soll.")
+        if target is None:
+            return
         data = get_temp_channel_data(channel)
-        owner = interaction.guild.get_member(data["owner"])
-        if owner and owner.voice and owner.voice.channel == channel:
-            return await interaction.response.send_message(
-                "Der Besitzer ist noch im Raum.", ephemeral=True
-            )
-        data["owner"] = interaction.user.id
-        await interaction.response.send_message(
-            "Du bist jetzt der Besitzer des Temp Voice.", ephemeral=True
-        )
+        if target.id in data["trusted"]:
+            return await interaction.followup.send("Dieser Benutzer ist bereits trusted.", ephemeral=True)
+        data["trusted"].append(target.id)
+        await channel.set_permissions(target, connect=True, view_channel=True)
+        await interaction.followup.send(f"{target.mention} ist jetzt trusted.", ephemeral=True)
+
+    @discord.ui.button(label="Untrust", style=discord.ButtonStyle.danger, emoji="❌")
+    async def untrust_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        channel = await self._get_temp_channel(interaction)
+        if channel is None:
+            return
+        target = await self._ask_for_member(interaction, "Bitte sende die Erwähnung oder ID des Benutzers, der untrusted werden soll.")
+        if target is None:
+            return
+        data = get_temp_channel_data(channel)
+        if target.id not in data["trusted"]:
+            return await interaction.followup.send("Dieser Benutzer ist nicht trusted.", ephemeral=True)
+        data["trusted"].remove(target.id)
+        await channel.set_permissions(target, overwrite=None)
+        await interaction.followup.send(f"{target.mention} ist nicht mehr trusted.", ephemeral=True)
+
+    @discord.ui.button(label="Invite", style=discord.ButtonStyle.primary, emoji="📩")
+    async def invite_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        channel = await self._get_temp_channel(interaction)
+        if channel is None:
+            return
+        target = await self._ask_for_member(interaction, "Bitte sende die Erwähnung oder ID des Benutzers, der eingeladen werden soll.")
+        if target is None:
+            return
+        data = get_temp_channel_data(channel)
+        if target.id in data["invited"]:
+            return await interaction.followup.send("Dieser Benutzer wurde bereits eingeladen.", ephemeral=True)
+        data["invited"].append(target.id)
+        await channel.set_permissions(target, connect=True, view_channel=True)
+        await interaction.followup.send(f"{target.mention} wurde eingeladen.", ephemeral=True)
+
+    @discord.ui.button(label="Kick", style=discord.ButtonStyle.danger, emoji="👢")
+    async def kick_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        channel = await self._get_temp_channel(interaction)
+        if channel is None:
+            return
+        target = await self._ask_for_member(interaction, "Bitte sende die Erwähnung oder ID des Benutzers, der gekickt werden soll.")
+        if target is None:
+            return
+        if target.voice and target.voice.channel == channel:
+            try:
+                await target.move_to(None)
+                await interaction.followup.send(f"{target.mention} wurde gekickt.", ephemeral=True)
+            except Exception as e:
+                await interaction.followup.send(f"Fehler beim Kicken: {e}", ephemeral=True)
+        else:
+            await interaction.followup.send("Dieser Benutzer ist nicht im Temp Voice.", ephemeral=True)
+
+    @discord.ui.button(label="Block", style=discord.ButtonStyle.danger, emoji="⛔")
+    async def block_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        channel = await self._get_temp_channel(interaction)
+        if channel is None:
+            return
+        target = await self._ask_for_member(interaction, "Bitte sende die Erwähnung oder ID des Benutzers, der blockiert werden soll.")
+        if target is None:
+            return
+        data = get_temp_channel_data(channel)
+        if target.id in data["blocked"]:
+            return await interaction.followup.send("Dieser Benutzer ist bereits blockiert.", ephemeral=True)
+        data["blocked"].append(target.id)
+        await channel.set_permissions(target, connect=False)
+        if target.voice and target.voice.channel == channel:
+            try:
+                await target.move_to(None)
+            except Exception:
+                pass
+        await interaction.followup.send(f"{target.mention} wurde blockiert.", ephemeral=True)
+
+    @discord.ui.button(label="Unblock", style=discord.ButtonStyle.success, emoji="🚫")
+    async def unblock_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        channel = await self._get_temp_channel(interaction)
+        if channel is None:
+            return
+        target = await self._ask_for_member(interaction, "Bitte sende die Erwähnung oder ID des Benutzers, der entblockt werden soll.")
+        if target is None:
+            return
+        data = get_temp_channel_data(channel)
+        if target.id not in data["blocked"]:
+            return await interaction.followup.send("Dieser Benutzer ist nicht blockiert.", ephemeral=True)
+        data["blocked"].remove(target.id)
+        await channel.set_permissions(target, overwrite=None)
+        await interaction.followup.send(f"{target.mention} ist nicht mehr blockiert.", ephemeral=True)
 
     @discord.ui.button(label="Transfer", style=discord.ButtonStyle.secondary, emoji="🔁")
     async def transfer_button(self, button: discord.ui.Button, interaction: discord.Interaction):
-        await interaction.response.send_modal(MemberActionModal("transfer"))
+        channel = await self._get_temp_channel(interaction)
+        if channel is None:
+            return
+        target = await self._ask_for_member(interaction, "Bitte sende die Erwähnung oder ID des neuen Besitzers.")
+        if target is None:
+            return
+        data = get_temp_channel_data(channel)
+        if target.voice is None or target.voice.channel != channel:
+            return await interaction.followup.send("Der Benutzer muss im selben Temp Voice sein.", ephemeral=True)
+        data["owner"] = target.id
+        await interaction.followup.send(f"Besitz wurde an {target.mention} übertragen.", ephemeral=True)
 
     @discord.ui.button(label="Delete", style=discord.ButtonStyle.danger, emoji="🗑️")
     async def delete_button(self, button: discord.ui.Button, interaction: discord.Interaction):
