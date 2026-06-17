@@ -37,6 +37,8 @@ if not TOKEN:
 # =========================
 LOG_CHANNEL_ID = 1509957389674348717
 PREFIX = "!"
+CREATOR_CHANNEL_ID = 1516541407853281331
+bot.temp_channels = {}
 
 
 # =========================
@@ -328,11 +330,6 @@ async def on_message(message):
 
 
 
-
-CREATOR_CHANNEL_ID = 1516541407853281331
-
-# Speicher für Temp-Channels
-bot.temp_channels = {}
 
 
 @bot.event
