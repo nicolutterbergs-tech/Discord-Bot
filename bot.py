@@ -436,11 +436,13 @@ class RegionModal(discord.ui.Modal, title="Temp Voice Region setzen"):
 
 
 class TempVCOverlay(discord.ui.View):
-    def __init__(self, owner_id: int):
+    def __init__(self, owner_id: int | None = None):
         super().__init__(timeout=None)
         self.owner_id = owner_id
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if self.owner_id is None:
+            return True
         if interaction.user.id != self.owner_id:
             await interaction.response.send_message(
                 "Nur der Ersteller kann dieses Overlay benutzen.",
@@ -774,12 +776,43 @@ async def tempvc(ctx):
     bot.add_view(view)
     await ctx.send(embed=embed, view=view)
 
+
+@bot.tree.command(name="setupvc", description="Erstellt das Temp-Voice-Overlay für den Server.")
+async def setupvc(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message(
+            "Nur Administratoren können das Setup ausführen.", ephemeral=True
+        )
+
+    embed = discord.Embed(
+        title="🎛️ Temp Voice Steuerung",
+        description=(
+            "Klicke auf die Buttons, um deinen Temp Voice zu konfigurieren.\n"
+            "Alle können das Overlay nutzen, wenn sie sich in ihrem Temp Voice befinden."
+        ),
+        color=discord.Color.blurple()
+    )
+    embed.add_field(name="Schnell starten", value="Name / Limit / Region / Chat / Privacy", inline=False)
+    embed.add_field(name="Zugriff verwalten", value="Trust / Untrust / Invite / Block / Unblock", inline=False)
+    embed.add_field(name="Sonstiges", value="Kick / Claim / Transfer / Delete", inline=False)
+
+    view = TempVCOverlay(None)
+    bot.add_view(view)
+    await interaction.response.send_message(
+        "Temp Voice Overlay wurde eingerichtet.", embed=embed, view=view
+    )
+
 # =========================
 # READY
 # =========================
 @bot.event
 async def on_ready():
     print(f"✅ Bot online als {bot.user}")
+
+    try:
+        await bot.tree.sync()
+    except Exception as e:
+        print("Fehler beim Synchronisieren der Slash-Commands:", e)
 
     await send_log("🟢 Bot gestartet")
 
