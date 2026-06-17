@@ -322,10 +322,7 @@ async def on_message(message):
                     except:
                         pass
 
-@bot.event
-async def on_voice_state_update(member, before, after):
 
-    try:
 
         # =========================
         # CREATE TEMP VOICE
