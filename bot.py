@@ -790,7 +790,6 @@ async def tempvc(ctx):
     embed.add_field(name="Sonstiges", value="Kick / Claim / Transfer / Delete", inline=False)
 
     view = TempVCOverlay(ctx.author.id)
-    bot.add_view(view)
     await ctx.send(embed=embed, view=view)
 
 
@@ -810,7 +809,6 @@ async def setupvc_prefix(ctx: commands.Context):
     embed.add_field(name="Sonstiges", value="Kick / Claim / Transfer / Delete", inline=False)
 
     view = TempVCOverlay(None)
-    bot.add_view(view)
     await ctx.send("Temp Voice Overlay wurde eingerichtet.", embed=embed, view=view)
 
 
@@ -834,7 +832,6 @@ async def setupvc(interaction: discord.Interaction):
     embed.add_field(name="Sonstiges", value="Kick / Claim / Transfer / Delete", inline=False)
 
     view = TempVCOverlay(None)
-    bot.add_view(view)
     await interaction.response.send_message(
         "Temp Voice Overlay wurde eingerichtet.", embed=embed, view=view
     )
