@@ -327,40 +327,38 @@ async def on_message(message):
         # =========================
         # CREATE TEMP VOICE
         # =========================
-        if after.channel and after.channel.id == CREATOR_CHANNEL_ID:1516541407853281331:
+        if after.channel and after.channel.id ==  1516541407853281331:
 
-            guild = member.guild
-            category = guild.get_channel(CATEGORY_ID)
+    guild = member.guild
+    category = guild.get_channel(CATEGORY_ID)
 
-            overwrites = {
-                guild.default_role: discord.PermissionOverwrite(
-                    view_channel=True,
-                    connect=True
-                ),
-                member: discord.PermissionOverwrite(
-                    view_channel=True,
-                    connect=True,
-                    manage_channels=True,
-                    move_members=True,
-                    mute_members=True,
-                    deafen_members=True
-                )
-            }
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(
+            view_channel=True,
+            connect=True
+        ),
+        member: discord.PermissionOverwrite(
+            view_channel=True,
+            connect=True,
+            manage_channels=True,
+            move_members=True,
+            mute_members=True,
+            deafen_members=True
+        )
+    }
 
-            channel = await guild.create_voice_channel(
-                name=f"🔊 {member.display_name}'s Room",
-                category=category,
-                overwrites=overwrites
-            )
+    channel = await guild.create_voice_channel(
+        name=f"🔊 {member.display_name}'s Room",
+        category=category,
+        overwrites=overwrites
+    )
 
-            await member.move_to(channel)
+    await member.move_to(channel)
 
-            # speichern für delete
-            if not hasattr(bot, "temp_channels"):
-                bot.temp_channels = {}
+    if not hasattr(bot, "temp_channels"):
+        bot.temp_channels = {}
 
-            bot.temp_channels[channel.id] = member.id
-
+    bot.temp_channels[channel.id] = member.id
             # =========================
             # LOG
             # =========================
