@@ -238,8 +238,9 @@ async def on_message(message):
                     timedelta(days=1),
                     reason="Link Spam"
                 )
-             except Exception as e:
-                 print(f"Fehler: {e}")
+
+            except Exception as e:
+                print(f"Fehler: {e}")
                 # =========================
                 # DM EMBED
                 # =========================
