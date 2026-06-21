@@ -212,19 +212,18 @@ async def update_alone_role(channel):
 
     aktive_user = []
 
-    for member in channel.members:
-        voice = member.voice
-
+    def is_voice_active(member):
+        voice = getattr(member, "voice", None)
         if voice is None:
-            continue
+            return False
+        return not (
+            voice.self_mute
+            or voice.self_deaf
+            or voice.mute
+            or voice.deaf
+        )
 
-        if (
-            not voice.self_mute
-            and not voice.self_deaf
-            and not voice.mute
-            and not voice.deaf
-        ):
-            aktive_user.append(member)
+    aktive_user = [member for member in channel.members if is_voice_active(member)]
 
     ziel_user = None
 
@@ -1476,6 +1475,22 @@ async def reaction_role_slash(
     await interaction.response.send_message(
         f"Reaction Role Nachricht erstellt in {channel.mention}.", ephemeral=True
     )
+
+
+@bot.tree.command(name="automod", description="Zeigt die Auto-Mod-Regeln an.")
+async def automod_slash(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="🔧 Auto-Mod Regeln",
+        description="Hier siehst du, welche Regeln der Auto-Moderation aktuell prüft.",
+        color=discord.Color.orange()
+    )
+    embed.add_field(name="Link-Protection", value="URLs und Einladungen werden entfernt und ggf. bestraft.", inline=False)
+    embed.add_field(name="Invite-Protection", value="Discord Invite-Links werden entfernt.", inline=False)
+    embed.add_field(name="Schimpfwörter", value="Profane Wörter werden entfernt.", inline=False)
+    embed.add_field(name="Erwähnungsspam", value=f"Mehr als {MAX_MENTIONS} Erwähnungen entfernt.", inline=False)
+    embed.add_field(name="Caps-Spam", value=f"Mehr als {int(CAPS_RATIO_THRESHOLD*100)}% Großbuchstaben in langen Nachrichten entfernt.", inline=False)
+    embed.add_field(name="Ausnahme", value="Administratoren werden nicht automatisch moderiert.", inline=False)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 # =========================
