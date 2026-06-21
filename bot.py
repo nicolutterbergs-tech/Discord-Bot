@@ -6,6 +6,7 @@ import os
 from datetime import timedelta
 from flask import Flask
 from threading import Thread
+import traceback
 
 # =========================
 # KEEP ALIVE
@@ -769,6 +770,10 @@ class TempVCOverlay(discord.ui.View):
 
     async def on_error(self, error: Exception, item: discord.ui.Item, interaction: discord.Interaction) -> None:
         try:
+            print("TempVCOverlay.on_error:")
+            traceback.print_exception(type(error), error, error.__traceback__)
+            print(f"item={item} interaction_user={getattr(interaction, 'user', None)} interaction_id={getattr(interaction, 'id', None)}")
+
             if interaction.response.is_done():
                 await interaction.followup.send(
                     f"Ein Fehler ist aufgetreten: {error}", ephemeral=True
@@ -777,8 +782,9 @@ class TempVCOverlay(discord.ui.View):
                 await interaction.response.send_message(
                     f"Ein Fehler ist aufgetreten: {error}", ephemeral=True
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            print("Failed sending error message to interaction:", e)
+            traceback.print_exc()
 
 
 @bot.group(name="tempvc", invoke_without_command=True)
