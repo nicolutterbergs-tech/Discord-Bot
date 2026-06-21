@@ -212,18 +212,19 @@ async def update_alone_role(channel):
 
     aktive_user = []
 
-    def is_voice_active(member):
-        voice = getattr(member, "voice", None)
-        if voice is None:
-            return False
-        return not (
-            voice.self_mute
-            or voice.self_deaf
-            or voice.mute
-            or voice.deaf
-        )
+    for member in channel.members:
+        voice = member.voice
 
-    aktive_user = [member for member in channel.members if is_voice_active(member)]
+        if voice is None:
+            continue
+
+        if (
+            not voice.self_mute
+            and not voice.self_deaf
+            and not voice.mute
+            and not voice.deaf
+        ):
+            aktive_user.append(member)
 
     ziel_user = None
 
