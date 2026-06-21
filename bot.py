@@ -57,6 +57,7 @@ intents.members = True
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 bot.temp_channels = {}
 bot.ticket_channels = {}
+bot.reaction_roles = {}
 bot.active_temp_views = []
 bot.active_views = []
 
@@ -1438,6 +1439,44 @@ async def setupvc(interaction: discord.Interaction):
         "Temp Voice Overlay wurde eingerichtet.", embed=embed, view=view
     )
 
+
+@bot.tree.command(name="reactionrole", description="Erstellt eine Reaction Role Nachricht.")
+@app_commands.describe(
+    channel="Kanal für die Nachricht",
+    role="Rolle, die bei Reaktion vergeben wird",
+    emoji="Emoji für die Reaction",
+    message="Nachrichtentext"
+)
+async def reaction_role_slash(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel,
+    role: discord.Role,
+    emoji: str,
+    message: str
+):
+    if not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message(
+            "Nur Administratoren können Reaction Roles einrichten.", ephemeral=True
+        )
+
+    try:
+        msg = await channel.send(message)
+        await msg.add_reaction(emoji)
+    except Exception as e:
+        return await interaction.response.send_message(
+            f"Fehler beim Erstellen der Reaction Role Nachricht: {e}", ephemeral=True
+        )
+
+    bot.reaction_roles[msg.id] = {
+        "role_id": role.id,
+        "emoji": emoji
+    }
+
+    await interaction.response.send_message(
+        f"Reaction Role Nachricht erstellt in {channel.mention}.", ephemeral=True
+    )
+
+
 # =========================
 # READY
 # =========================
@@ -1736,6 +1775,48 @@ async def on_message(message):
             return
 
     await bot.process_commands(message)
+
+
+async def handle_reaction_role(payload: discord.RawReactionActionEvent, add: bool):
+    config = bot.reaction_roles.get(payload.message_id)
+    if config is None or payload.guild_id is None:
+        return
+
+    if str(payload.emoji) != config["emoji"]:
+        return
+
+    guild = bot.get_guild(payload.guild_id)
+    if guild is None:
+        return
+
+    role = guild.get_role(config["role_id"])
+    if role is None:
+        return
+
+    member = payload.member
+    if member is None:
+        member = guild.get_member(payload.user_id)
+
+    if member is None or member.bot:
+        return
+
+    try:
+        if add:
+            await member.add_roles(role, reason="Reaction Role hinzugefügt")
+        else:
+            await member.remove_roles(role, reason="Reaction Role entfernt")
+    except Exception as e:
+        print(f"Reaction Role Fehler: {e}")
+
+
+@bot.event
+async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
+    await handle_reaction_role(payload, True)
+
+
+@bot.event
+async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
+    await handle_reaction_role(payload, False)
 
 
 @bot.event
