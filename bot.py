@@ -531,6 +531,10 @@ class TempVCOverlay(discord.ui.View):
             return False
 
     async def _get_temp_channel(self, interaction):
+        if not isinstance(interaction, discord.Interaction):
+            print(f"_get_temp_channel: erwartet Interaction, erhalten {type(interaction).__name__}: {interaction}")
+            return None
+
         member = resolve_member(interaction.user, interaction.guild)
         channel = get_member_voice_temp_channel(member)
         print(f"_get_temp_channel: user={interaction.user} resolved_member={member} channel={channel}")
@@ -802,17 +806,22 @@ class TempVCOverlay(discord.ui.View):
     async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
         try:
             print("TempVCOverlay.on_error:")
-            traceback.print_exception(type(error), error, error.__traceback__)
+            if isinstance(error, Exception):
+                traceback.print_exception(type(error), error, error.__traceback__)
+            else:
+                print(f"Nicht-standardmäßiger Fehlerwert: {error}")
+
             print(f"item={item} interaction_user={getattr(interaction, 'user', None)} interaction_id={getattr(interaction, 'id', None)}")
 
-            if interaction.response.is_done():
-                await interaction.followup.send(
-                    f"Ein Fehler ist aufgetreten: {error}", ephemeral=True
-                )
-            else:
-                await interaction.response.send_message(
-                    f"Ein Fehler ist aufgetreten: {error}", ephemeral=True
-                )
+            if isinstance(interaction, discord.Interaction):
+                if interaction.response.is_done():
+                    await interaction.followup.send(
+                        f"Ein Fehler ist aufgetreten: {error}", ephemeral=True
+                    )
+                else:
+                    await interaction.response.send_message(
+                        f"Ein Fehler ist aufgetreten: {error}", ephemeral=True
+                    )
         except Exception as e:
             print("Failed sending error message to interaction:", e)
             traceback.print_exc()
