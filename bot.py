@@ -899,7 +899,7 @@ async def setupvc(interaction: discord.Interaction):
 async def on_ready():
     print(f"✅ Bot online als {bot.user}")
     print("Loaded prefix commands:", [cmd.name for cmd in bot.commands])
-    print("Loaded slash commands:", [cmd.name for cmd in bot.tree.commands])
+    print("Loaded slash commands:", [cmd.name for cmd in bot.tree.get_commands()])
 
     try:
         await bot.tree.sync()
