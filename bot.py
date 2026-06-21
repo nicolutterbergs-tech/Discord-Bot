@@ -1,5 +1,6 @@
 import asyncio
 import discord
+from discord import app_commands
 from discord.ext import commands
 import re
 import os
@@ -61,16 +62,15 @@ TICKET_PANEL_CHANNEL_NAME = "🎫ticket"
 TICKET_CHANNEL_PREFIX = "ticket-"
 
 
-@bot.command(name="ping")
-async def ping(ctx: commands.Context):
-    await ctx.send("Pong!")
+@bot.tree.command(name="ping", description="Antwortet mit Pong")
+async def ping(interaction: discord.Interaction):
+    await interaction.response.send_message("Pong!")
 
 
-@bot.command(name="vcdebug")
-async def vcdebug(ctx: commands.Context):
-    """Debug-Befehl: zeigt Voice-Channel-Status und Temp-Channel-Daten für den Aufrufer."""
-    member = ctx.author
-    channel = member.voice.channel if member.voice else None
+@bot.tree.command(name="vcdebug", description="Zeigt Voice-Channel-Status und Temp-Channel-Daten")
+async def vcdebug(interaction: discord.Interaction):
+    member = resolve_member(interaction.user, interaction.guild)
+    channel = member.voice.channel if getattr(member, "voice", None) else None
     temp = is_temp_channel(channel)
     data = get_temp_channel_data(channel)
     keys = list(bot.temp_channels.keys())
@@ -81,7 +81,7 @@ async def vcdebug(ctx: commands.Context):
         f"temp_data={data}\n"
         f"known_temp_channel_ids={keys[:50]}"
     )
-    await ctx.send(f"```\n{msg}\n```")
+    await interaction.response.send_message(f"```\n{msg}\n```")
 
 
 @bot.event
@@ -243,6 +243,11 @@ async def update_alone_role(channel):
 
 def get_temp_channel_data(channel):
     return bot.temp_channels.get(channel.id) if channel else None
+
+
+def get_voice_temp_channel_member(member):
+    channel = member.voice.channel if getattr(member, "voice", None) else None
+    return channel if is_temp_channel(channel) else None
 
 
 def is_temp_channel(channel):
@@ -898,16 +903,17 @@ class TempVCOverlay(discord.ui.View):
             traceback.print_exc()
 
 
-@bot.group(name="tempvc", invoke_without_command=True)
-async def tempvc(ctx):
-    channel = get_voice_temp_channel(ctx)
+@bot.tree.command(name="tempvc", description="Zeigt dein Temp Voice Overlay an.")
+async def tempvc_slash(interaction: discord.Interaction):
+    member = resolve_member(interaction.user, interaction.guild)
+    channel = get_voice_temp_channel_member(member)
     if channel is None:
-        return await ctx.send(
-            "Du musst in deinem Temp Voice sein, um das Overlay zu benutzen."
+        return await interaction.response.send_message(
+            "Du musst in deinem Temp Voice sein, um das Overlay nutzen zu können.", ephemeral=True
         )
-    if not is_temp_owner(ctx.author, channel):
-        return await ctx.send(
-            "Nur der Besitzer kann das Overlay benutzen."
+    if not is_temp_owner(member, channel):
+        return await interaction.response.send_message(
+            "Nur der Besitzer kann das Overlay nutzen.", ephemeral=True
         )
 
     embed = discord.Embed(
@@ -924,27 +930,278 @@ async def tempvc(ctx):
 
     view = TempVCOverlay()
     bot.active_temp_views.append(view)
-    await ctx.send(embed=embed, view=view)
+    await interaction.response.send_message(embed=embed, view=view)
 
 
-@bot.command(name="setupvc")
-@commands.has_permissions(administrator=True)
-async def setupvc_prefix(ctx: commands.Context):
-    embed = discord.Embed(
-        title="🎛️ Temp Voice Steuerung",
-        description=(
-            "Klicke auf die Buttons, um deinen Temp Voice zu konfigurieren.\n"
-            "Alle können das Overlay nutzen, wenn sie sich in ihrem Temp Voice befinden."
-        ),
-        color=discord.Color.blurple()
-    )
-    embed.add_field(name="Schnell starten", value="Name / Limit / Region / Chat / Privacy", inline=False)
-    embed.add_field(name="Zugriff verwalten", value="Trust / Untrust / Invite / Block / Unblock", inline=False)
-    embed.add_field(name="Sonstiges", value="Kick / Claim / Transfer / Delete", inline=False)
+@bot.tree.command(name="tempvc_name", description="Ändert den Namen deines Temp Voice Channels.")
+@app_commands.describe(name="Neuer Raumname")
+async def tempvc_name_slash(interaction: discord.Interaction, name: str):
+    member = resolve_member(interaction.user, interaction.guild)
+    channel = get_voice_temp_channel_member(member)
+    if channel is None or not is_temp_owner(member, channel):
+        return await interaction.response.send_message("Nur der Besitzer eines Temp Voice kann den Namen ändern.", ephemeral=True)
 
-    view = TempVCOverlay()
-    bot.active_temp_views.append(view)
-    await ctx.send("Temp Voice Overlay wurde eingerichtet.", embed=embed, view=view)
+    data = get_temp_channel_data(channel)
+    try:
+        await channel.edit(name=name)
+        if data.get("chat_channel_id"):
+            chat_channel = interaction.guild.get_channel(data["chat_channel_id"])
+            if chat_channel:
+                await chat_channel.edit(name=f"{name}-chat")
+        await interaction.response.send_message(f"Name wurde geändert zu `{name}`.")
+    except Exception as e:
+        await interaction.response.send_message(f"Fehler beim Ändern des Namens: {e}")
+
+
+@bot.tree.command(name="tempvc_limit", description="Setzt das Nutzerlimit deines Temp Voice Channels.")
+@app_commands.describe(limit="Maximale Teilnehmeranzahl")
+async def tempvc_limit_slash(interaction: discord.Interaction, limit: int):
+    member = resolve_member(interaction.user, interaction.guild)
+    channel = get_voice_temp_channel_member(member)
+    if channel is None or not is_temp_owner(member, channel):
+        return await interaction.response.send_message("Nur der Besitzer kann das Limit setzen.", ephemeral=True)
+
+    if limit < 0 or limit > 99:
+        return await interaction.response.send_message("Limit muss zwischen 0 und 99 liegen.", ephemeral=True)
+
+    try:
+        await channel.edit(user_limit=limit)
+        await interaction.response.send_message(f"Maximale Teilnehmerzahl gesetzt auf {limit}.")
+    except Exception as e:
+        await interaction.response.send_message(f"Fehler beim Setzen des Limits: {e}")
+
+
+@bot.tree.command(name="tempvc_privacy", description="Schaltet die Privatsphäre für deinen Temp Voice ein oder aus.")
+@app_commands.describe(enabled="Privatsphäre aktivieren")
+async def tempvc_privacy_slash(interaction: discord.Interaction, enabled: bool):
+    member = resolve_member(interaction.user, interaction.guild)
+    channel = get_voice_temp_channel_member(member)
+    if channel is None or not is_temp_owner(member, channel):
+        return await interaction.response.send_message("Nur der Besitzer kann die Privatsphäre ändern.", ephemeral=True)
+
+    data = get_temp_channel_data(channel)
+    data["private"] = enabled
+    await apply_privacy_settings(channel, data)
+    await interaction.response.send_message(f"Privatsphäre gesetzt: {enabled}.")
+
+
+@bot.tree.command(name="tempvc_waiting", description="Schaltet den Warteraum für deinen Temp Voice ein oder aus.")
+@app_commands.describe(enabled="Warteraum aktivieren")
+async def tempvc_waiting_slash(interaction: discord.Interaction, enabled: bool):
+    member = resolve_member(interaction.user, interaction.guild)
+    channel = get_voice_temp_channel_member(member)
+    if channel is None or not is_temp_owner(member, channel):
+        return await interaction.response.send_message("Nur der Besitzer kann das Warteraum-Verhalten ändern.", ephemeral=True)
+
+    data = get_temp_channel_data(channel)
+    data["waiting_room"] = enabled
+    await interaction.response.send_message(f"Warteraum gesetzt: {enabled}.")
+
+
+@bot.tree.command(name="tempvc_chat", description="Schaltet den Chat für deinen Temp Voice ein oder aus.")
+@app_commands.describe(enabled="Chat aktivieren")
+async def tempvc_chat_slash(interaction: discord.Interaction, enabled: bool):
+    member = resolve_member(interaction.user, interaction.guild)
+    channel = get_voice_temp_channel_member(member)
+    if channel is None or not is_temp_owner(member, channel):
+        return await interaction.response.send_message("Nur der Besitzer kann den Chat ein- oder ausschalten.", ephemeral=True)
+
+    data = get_temp_channel_data(channel)
+    if enabled:
+        if data.get("chat_channel_id"):
+            return await interaction.response.send_message("Der Chat ist bereits aktiviert.", ephemeral=True)
+
+        category = channel.category
+        try:
+            chat_channel = await interaction.guild.create_text_channel(
+                name=f"{channel.name}-chat",
+                category=category,
+                overwrites={
+                    interaction.guild.default_role: discord.PermissionOverwrite(view_channel=True, send_messages=True)
+                }
+            )
+            data["chat_channel_id"] = chat_channel.id
+            await interaction.response.send_message(f"Chat-Kanal erstellt: {chat_channel.mention}")
+        except Exception as e:
+            await interaction.response.send_message(f"Fehler beim Erstellen des Chats: {e}")
+    else:
+        if not data.get("chat_channel_id"):
+            return await interaction.response.send_message("Der Chat ist bereits deaktiviert.", ephemeral=True)
+
+        chat_channel = interaction.guild.get_channel(data["chat_channel_id"])
+        if chat_channel:
+            try:
+                await chat_channel.delete()
+            except Exception as e:
+                return await interaction.response.send_message(f"Fehler beim Löschen des Chats: {e}", ephemeral=True)
+        data["chat_channel_id"] = None
+        await interaction.response.send_message("Chat wurde deaktiviert.")
+
+
+@bot.tree.command(name="tempvc_trust", description="Vertraut einen Benutzer in deinem Temp Voice.")
+@app_commands.describe(member="Mitglied, das trusted werden soll")
+async def tempvc_trust_slash(interaction: discord.Interaction, member: discord.Member):
+    author = resolve_member(interaction.user, interaction.guild)
+    channel = get_voice_temp_channel_member(author)
+    if channel is None or not is_temp_owner(author, channel):
+        return await interaction.response.send_message("Nur der Besitzer kann vertrauen.", ephemeral=True)
+
+    data = get_temp_channel_data(channel)
+    if member.id in data["trusted"]:
+        return await interaction.response.send_message("Dieser Benutzer ist bereits vertrauenswürdig.", ephemeral=True)
+
+    data["trusted"].append(member.id)
+    await channel.set_permissions(member, connect=True, view_channel=True)
+    await interaction.response.send_message(f"{member.mention} ist jetzt trusted.")
+
+
+@bot.tree.command(name="tempvc_untrust", description="Entzieht einem Benutzer das Vertrauen in deinem Temp Voice.")
+@app_commands.describe(member="Mitglied, dessen Vertrauen entzogen werden soll")
+async def tempvc_untrust_slash(interaction: discord.Interaction, member: discord.Member):
+    author = resolve_member(interaction.user, interaction.guild)
+    channel = get_voice_temp_channel_member(author)
+    if channel is None or not is_temp_owner(author, channel):
+        return await interaction.response.send_message("Nur der Besitzer kann Vertrauen entziehen.", ephemeral=True)
+
+    data = get_temp_channel_data(channel)
+    if member.id not in data["trusted"]:
+        return await interaction.response.send_message("Dieser Benutzer ist nicht trusted.", ephemeral=True)
+
+    data["trusted"].remove(member.id)
+    await channel.set_permissions(member, overwrite=None)
+    await interaction.response.send_message(f"{member.mention} ist nicht mehr trusted.")
+
+
+@bot.tree.command(name="tempvc_invite", description="Lädt einen Benutzer in deinen Temp Voice ein.")
+@app_commands.describe(member="Mitglied, das eingeladen werden soll")
+async def tempvc_invite_slash(interaction: discord.Interaction, member: discord.Member):
+    author = resolve_member(interaction.user, interaction.guild)
+    channel = get_voice_temp_channel_member(author)
+    if channel is None or not is_temp_owner(author, channel):
+        return await interaction.response.send_message("Nur der Besitzer kann Einladungen vergeben.", ephemeral=True)
+
+    data = get_temp_channel_data(channel)
+    if member.id in data["invited"]:
+        return await interaction.response.send_message("Dieser Benutzer wurde bereits eingeladen.", ephemeral=True)
+
+    data["invited"].append(member.id)
+    await channel.set_permissions(member, connect=True, view_channel=True)
+    await interaction.response.send_message(f"{member.mention} wurde eingeladen.")
+
+
+@bot.tree.command(name="tempvc_kick", description="Kick einen Benutzer aus deinem Temp Voice.")
+@app_commands.describe(member="Mitglied, das gekickt werden soll")
+async def tempvc_kick_slash(interaction: discord.Interaction, member: discord.Member):
+    author = resolve_member(interaction.user, interaction.guild)
+    channel = get_voice_temp_channel_member(author)
+    if channel is None or not is_temp_owner(author, channel):
+        return await interaction.response.send_message("Nur der Besitzer kann jemanden kicken.", ephemeral=True)
+
+    if member.voice and member.voice.channel == channel:
+        try:
+            await member.move_to(None)
+            await interaction.response.send_message(f"{member.mention} wurde aus dem Voice entfernt.")
+        except Exception as e:
+            await interaction.response.send_message(f"Fehler beim Kicken: {e}")
+    else:
+        await interaction.response.send_message("Dieser Benutzer ist nicht im Temp Voice.")
+
+
+@bot.tree.command(name="tempvc_region", description="Ändert die Region deines Temp Voice.")
+@app_commands.describe(region="Neue Region")
+async def tempvc_region_slash(interaction: discord.Interaction, region: str):
+    author = resolve_member(interaction.user, interaction.guild)
+    channel = get_voice_temp_channel_member(author)
+    if channel is None or not is_temp_owner(author, channel):
+        return await interaction.response.send_message("Nur der Besitzer kann die Region ändern.", ephemeral=True)
+
+    try:
+        await channel.edit(rtc_region=region)
+        await interaction.response.send_message(f"Region gesetzt auf `{region}`.")
+    except Exception as e:
+        await interaction.response.send_message(f"Fehler beim Setzen der Region: {e}")
+
+
+@bot.tree.command(name="tempvc_block", description="Blockiert einen Benutzer für deinen Temp Voice.")
+@app_commands.describe(member="Mitglied, das blockiert werden soll")
+async def tempvc_block_slash(interaction: discord.Interaction, member: discord.Member):
+    author = resolve_member(interaction.user, interaction.guild)
+    channel = get_voice_temp_channel_member(author)
+    if channel is None or not is_temp_owner(author, channel):
+        return await interaction.response.send_message("Nur der Besitzer kann blockieren.", ephemeral=True)
+
+    data = get_temp_channel_data(channel)
+    if member.id in data["blocked"]:
+        return await interaction.response.send_message("Dieser Benutzer ist bereits blockiert.", ephemeral=True)
+
+    data["blocked"].append(member.id)
+    await channel.set_permissions(member, connect=False)
+    if member.voice and member.voice.channel == channel:
+        try:
+            await member.move_to(None)
+        except Exception:
+            pass
+    await interaction.response.send_message(f"{member.mention} wurde blockiert.")
+
+
+@bot.tree.command(name="tempvc_unblock", description="Hebt die Blockierung eines Benutzers auf.")
+@app_commands.describe(member="Mitglied, das entblockt werden soll")
+async def tempvc_unblock_slash(interaction: discord.Interaction, member: discord.Member):
+    author = resolve_member(interaction.user, interaction.guild)
+    channel = get_voice_temp_channel_member(author)
+    if channel is None or not is_temp_owner(author, channel):
+        return await interaction.response.send_message("Nur der Besitzer kann blockieren aufheben.", ephemeral=True)
+
+    data = get_temp_channel_data(channel)
+    if member.id not in data["blocked"]:
+        return await interaction.response.send_message("Dieser Benutzer ist nicht blockiert.", ephemeral=True)
+
+    data["blocked"].remove(member.id)
+    await channel.set_permissions(member, overwrite=None)
+    await interaction.response.send_message(f"{member.mention} ist nicht mehr blockiert.")
+
+
+@bot.tree.command(name="tempvc_claim", description="Claimt ein Temp Voice, wenn der Besitzer weg ist.")
+async def tempvc_claim_slash(interaction: discord.Interaction):
+    author = resolve_member(interaction.user, interaction.guild)
+    channel = get_voice_temp_channel_member(author)
+    if channel is None:
+        return await interaction.response.send_message("Du musst in einem Temp Voice sein, um es zu claimen.", ephemeral=True)
+
+    data = get_temp_channel_data(channel)
+    owner = channel.guild.get_member(data["owner"])
+    if owner and owner.voice and owner.voice.channel == channel:
+        return await interaction.response.send_message("Der Besitzer ist noch im Raum.", ephemeral=True)
+
+    data["owner"] = interaction.user.id
+    await interaction.response.send_message("Du bist jetzt der Besitzer des Temp Voice Channels.")
+
+
+@bot.tree.command(name="tempvc_transfer", description="Überträgt dein Temp Voice an einen Benutzer.")
+@app_commands.describe(member="Neuer Besitzer")
+async def tempvc_transfer_slash(interaction: discord.Interaction, member: discord.Member):
+    author = resolve_member(interaction.user, interaction.guild)
+    channel = get_voice_temp_channel_member(author)
+    if channel is None or not is_temp_owner(author, channel):
+        return await interaction.response.send_message("Nur der Besitzer kann den Raum übertragen.", ephemeral=True)
+
+    if member.voice is None or member.voice.channel != channel:
+        return await interaction.response.send_message("Der Benutzer muss im selben Temp Voice sein.", ephemeral=True)
+
+    data = get_temp_channel_data(channel)
+    data["owner"] = member.id
+    await interaction.response.send_message(f"Besitz wurde an {member.mention} übertragen.")
+
+
+@bot.tree.command(name="tempvc_delete", description="Löscht dein Temp Voice.")
+async def tempvc_delete_slash(interaction: discord.Interaction):
+    author = resolve_member(interaction.user, interaction.guild)
+    channel = get_voice_temp_channel_member(author)
+    if channel is None or not is_temp_owner(author, channel):
+        return await interaction.response.send_message("Nur der Besitzer kann den Temp Voice löschen.", ephemeral=True)
+
+    await cleanup_temp_channel(channel)
+    await interaction.response.send_message("Temp Voice Channel wurde gelöscht.")
 
 
 class TicketPanelView(discord.ui.View):
@@ -1001,30 +1258,6 @@ class TicketPanelView(discord.ui.View):
         await send_log(
             f"🎫 Ticket geöffnet\nBenutzer: {interaction.user} ({interaction.user.id})\nKanal: {channel.name} ({channel.id})\nServer: {guild.name} ({guild.id})"
         )
-
-
-@bot.command(name="setupticket")
-@commands.has_permissions(administrator=True)
-async def setupticket_prefix(ctx: commands.Context):
-    category = get_ticket_category(ctx.guild)
-    if category is None:
-        category = await ctx.guild.create_category(TICKET_CATEGORY_NAME)
-
-    panel_channel = find_ticket_panel_channel(ctx.guild)
-    if panel_channel is None:
-        panel_channel = await ctx.guild.create_text_channel(
-            name=TICKET_PANEL_CHANNEL_NAME,
-            category=category,
-            overwrites={ctx.guild.default_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)}
-        )
-
-    embed = discord.Embed(
-        title="🎫 Ticket-System",
-        description="Klicke auf den Button, um ein Support-Ticket zu erstellen.",
-        color=discord.Color.green()
-    )
-    await panel_channel.send(embed=embed, view=TicketPanelView())
-    await ctx.send(f"Ticket-Panel wurde eingerichtet in {panel_channel.mention}.")
 
 
 @bot.tree.command(name="setupticket", description="Richtet das Ticket-System automatisch ein.")
@@ -1214,262 +1447,6 @@ def parse_bool(value):
     if value in ("off", "false", "no", "0", "aus"):
         return False
     return None
-
-
-@tempvc.command(name="name")
-async def tempvc_name(ctx, *, name: str):
-    channel = get_voice_temp_channel(ctx)
-    if channel is None or not is_temp_owner(ctx.author, channel):
-        return await ctx.send("Nur der Besitzer eines Temp Voice kann den Namen ändern.")
-
-    data = get_temp_channel_data(channel)
-    try:
-        await channel.edit(name=name)
-        if data.get("chat_channel_id"):
-            chat_channel = ctx.guild.get_channel(data["chat_channel_id"])
-            if chat_channel:
-                await chat_channel.edit(name=f"{name}-chat")
-        await ctx.send(f"Name wurde geändert zu `{name}`.")
-    except Exception as e:
-        await ctx.send(f"Fehler beim Ändern des Namens: {e}")
-
-
-@tempvc.command(name="limit")
-async def tempvc_limit(ctx, limit: int):
-    channel = get_voice_temp_channel(ctx)
-    if channel is None or not is_temp_owner(ctx.author, channel):
-        return await ctx.send("Nur der Besitzer kann das Limit setzen.")
-
-    if limit < 0 or limit > 99:
-        return await ctx.send("Limit muss zwischen 0 und 99 liegen.")
-
-    try:
-        await channel.edit(user_limit=limit)
-        await ctx.send(f"Maximale Teilnehmerzahl gesetzt auf {limit}.")
-    except Exception as e:
-        await ctx.send(f"Fehler beim Setzen des Limits: {e}")
-
-
-@tempvc.command(name="privacy")
-async def tempvc_privacy(ctx, value: str):
-    channel = get_voice_temp_channel(ctx)
-    if channel is None or not is_temp_owner(ctx.author, channel):
-        return await ctx.send("Nur der Besitzer kann die Privatsphäre ändern.")
-
-    enabled = parse_bool(value)
-    if enabled is None:
-        return await ctx.send("Bitte `on` oder `off` angeben.")
-
-    data = get_temp_channel_data(channel)
-    data["private"] = enabled
-    await apply_privacy_settings(channel, data)
-    await ctx.send(f"Privatsphäre gesetzt: {enabled}.")
-
-
-@tempvc.command(name="waiting")
-async def tempvc_waiting(ctx, value: str):
-    channel = get_voice_temp_channel(ctx)
-    if channel is None or not is_temp_owner(ctx.author, channel):
-        return await ctx.send("Nur der Besitzer kann das Warteraum-Verhalten ändern.")
-
-    enabled = parse_bool(value)
-    if enabled is None:
-        return await ctx.send("Bitte `on` oder `off` angeben.")
-
-    data = get_temp_channel_data(channel)
-    data["waiting_room"] = enabled
-    await ctx.send(f"Warteraum gesetzt: {enabled}.")
-
-
-@tempvc.command(name="chat")
-async def tempvc_chat(ctx, value: str):
-    channel = get_voice_temp_channel(ctx)
-    if channel is None or not is_temp_owner(ctx.author, channel):
-        return await ctx.send("Nur der Besitzer kann den Chat ein- oder ausschalten.")
-
-    enabled = parse_bool(value)
-    if enabled is None:
-        return await ctx.send("Bitte `on` oder `off` angeben.")
-
-    data = get_temp_channel_data(channel)
-    if enabled:
-        if data.get("chat_channel_id"):
-            return await ctx.send("Der Chat ist bereits aktiviert.")
-
-        category = channel.category
-        try:
-            chat_channel = await ctx.guild.create_text_channel(
-                name=f"{channel.name}-chat",
-                category=category,
-                overwrites={
-                    ctx.guild.default_role: discord.PermissionOverwrite(view_channel=True, send_messages=True)
-                }
-            )
-            data["chat_channel_id"] = chat_channel.id
-            await ctx.send(f"Chat-Kanal erstellt: {chat_channel.mention}")
-        except Exception as e:
-            await ctx.send(f"Fehler beim Erstellen des Chats: {e}")
-    else:
-        if not data.get("chat_channel_id"):
-            return await ctx.send("Der Chat ist bereits deaktiviert.")
-
-        chat_channel = ctx.guild.get_channel(data["chat_channel_id"])
-        if chat_channel:
-            try:
-                await chat_channel.delete()
-            except Exception as e:
-                await ctx.send(f"Fehler beim Löschen des Chats: {e}")
-                return
-        data["chat_channel_id"] = None
-        await ctx.send("Chat wurde deaktiviert.")
-
-
-@tempvc.command(name="trust")
-async def tempvc_trust(ctx, member: discord.Member):
-    channel = get_voice_temp_channel(ctx)
-    if channel is None or not is_temp_owner(ctx.author, channel):
-        return await ctx.send("Nur der Besitzer kann vertrauen.")
-
-    data = get_temp_channel_data(channel)
-    if member.id in data["trusted"]:
-        return await ctx.send("Dieser Benutzer ist bereits vertrauenswürdig.")
-
-    data["trusted"].append(member.id)
-    await channel.set_permissions(member, connect=True, view_channel=True)
-    await ctx.send(f"{member.mention} ist jetzt trusted.")
-
-
-@tempvc.command(name="untrust")
-async def tempvc_untrust(ctx, member: discord.Member):
-    channel = get_voice_temp_channel(ctx)
-    if channel is None or not is_temp_owner(ctx.author, channel):
-        return await ctx.send("Nur der Besitzer kann Vertrauen entziehen.")
-
-    data = get_temp_channel_data(channel)
-    if member.id not in data["trusted"]:
-        return await ctx.send("Dieser Benutzer ist nicht trusted.")
-
-    data["trusted"].remove(member.id)
-    await channel.set_permissions(member, overwrite=None)
-    await ctx.send(f"{member.mention} ist nicht mehr trusted.")
-
-
-@tempvc.command(name="invite")
-async def tempvc_invite(ctx, member: discord.Member):
-    channel = get_voice_temp_channel(ctx)
-    if channel is None or not is_temp_owner(ctx.author, channel):
-        return await ctx.send("Nur der Besitzer kann Einladungen vergeben.")
-
-    data = get_temp_channel_data(channel)
-    if member.id in data["invited"]:
-        return await ctx.send("Dieser Benutzer wurde bereits eingeladen.")
-
-    data["invited"].append(member.id)
-    await channel.set_permissions(member, connect=True, view_channel=True)
-    await ctx.send(f"{member.mention} wurde eingeladen.")
-
-
-@tempvc.command(name="kick")
-async def tempvc_kick(ctx, member: discord.Member):
-    channel = get_voice_temp_channel(ctx)
-    if channel is None or not is_temp_owner(ctx.author, channel):
-        return await ctx.send("Nur der Besitzer kann jemanden kicken.")
-
-    if member.voice and member.voice.channel == channel:
-        try:
-            await member.move_to(None)
-            await ctx.send(f"{member.mention} wurde aus dem Voice entfernt.")
-        except Exception as e:
-            await ctx.send(f"Fehler beim Kicken: {e}")
-    else:
-        await ctx.send("Dieser Benutzer ist nicht im Temp Voice.")
-
-
-@tempvc.command(name="region")
-async def tempvc_region(ctx, region: str):
-    channel = get_voice_temp_channel(ctx)
-    if channel is None or not is_temp_owner(ctx.author, channel):
-        return await ctx.send("Nur der Besitzer kann die Region ändern.")
-
-    try:
-        await channel.edit(rtc_region=region)
-        await ctx.send(f"Region gesetzt auf `{region}`.")
-    except Exception as e:
-        await ctx.send(f"Fehler beim Setzen der Region: {e}")
-
-
-@tempvc.command(name="block")
-async def tempvc_block(ctx, member: discord.Member):
-    channel = get_voice_temp_channel(ctx)
-    if channel is None or not is_temp_owner(ctx.author, channel):
-        return await ctx.send("Nur der Besitzer kann blockieren.")
-
-    data = get_temp_channel_data(channel)
-    if member.id in data["blocked"]:
-        return await ctx.send("Dieser Benutzer ist bereits blockiert.")
-
-    data["blocked"].append(member.id)
-    await channel.set_permissions(member, connect=False)
-    if member.voice and member.voice.channel == channel:
-        try:
-            await member.move_to(None)
-        except Exception:
-            pass
-    await ctx.send(f"{member.mention} wurde blockiert.")
-
-
-@tempvc.command(name="unblock")
-async def tempvc_unblock(ctx, member: discord.Member):
-    channel = get_voice_temp_channel(ctx)
-    if channel is None or not is_temp_owner(ctx.author, channel):
-        return await ctx.send("Nur der Besitzer kann blockieren aufheben.")
-
-    data = get_temp_channel_data(channel)
-    if member.id not in data["blocked"]:
-        return await ctx.send("Dieser Benutzer ist nicht blockiert.")
-
-    data["blocked"].remove(member.id)
-    await channel.set_permissions(member, overwrite=None)
-    await ctx.send(f"{member.mention} ist nicht mehr blockiert.")
-
-
-@tempvc.command(name="claim")
-async def tempvc_claim(ctx):
-    channel = get_voice_temp_channel(ctx)
-    if channel is None:
-        return await ctx.send("Du musst in einem Temp Voice sein, um es zu claimen.")
-
-    data = get_temp_channel_data(channel)
-    owner = channel.guild.get_member(data["owner"])
-    if owner and owner.voice and owner.voice.channel == channel:
-        return await ctx.send("Der Besitzer ist noch im Raum.")
-
-    data["owner"] = ctx.author.id
-    await ctx.send("Du bist jetzt der Besitzer des Temp Voice Channels.")
-
-
-@tempvc.command(name="transfer")
-async def tempvc_transfer(ctx, member: discord.Member):
-    channel = get_voice_temp_channel(ctx)
-    if channel is None or not is_temp_owner(ctx.author, channel):
-        return await ctx.send("Nur der Besitzer kann den Raum übertragen.")
-
-    if member.voice is None or member.voice.channel != channel:
-        return await ctx.send("Der Benutzer muss im selben Temp Voice sein.")
-
-    data = get_temp_channel_data(channel)
-    data["owner"] = member.id
-    await ctx.send(f"Besitz wurde an {member.mention} übertragen.")
-
-
-@tempvc.command(name="delete")
-async def tempvc_delete(ctx):
-    channel = get_voice_temp_channel(ctx)
-    if channel is None or not is_temp_owner(ctx.author, channel):
-        return await ctx.send("Nur der Besitzer kann den Temp Voice löschen.")
-
-    await cleanup_temp_channel(channel)
-    await ctx.send("Temp Voice Channel wurde gelöscht.")
 
 
 # =========================
