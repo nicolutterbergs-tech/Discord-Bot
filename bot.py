@@ -551,24 +551,14 @@ class TempVCOverlay(discord.ui.View):
         if channel is None:
             return
 
-        value = await self._ask_for_input(interaction, "Bitte sende den neuen Namen für den Temp Voice Channel.")
-        if not value:
-            return
-
         try:
-            await channel.edit(name=value)
-            data = get_temp_channel_data(channel)
-            if data.get("chat_channel_id"):
-                chat_channel = interaction.guild.get_channel(data["chat_channel_id"])
-                if chat_channel:
-                    await chat_channel.edit(name=f"{value}-chat")
-            await interaction.followup.send(
-                f"Name geändert zu `{value}`.", ephemeral=True
-            )
+            await interaction.response.send_modal(NameModal())
         except Exception as e:
-            await interaction.followup.send(
-                f"Fehler beim Ändern des Namens: {e}", ephemeral=True
-            )
+            print(f"failed to send NameModal: {e}")
+            try:
+                await interaction.response.send_message(f"Fehler: {e}", ephemeral=True)
+            except Exception:
+                pass
 
     @discord.ui.button(label="Limit", style=discord.ButtonStyle.secondary, emoji="🔢", custom_id="tempvc_limit")
     async def limit_button(self, button: discord.ui.Button, interaction: discord.Interaction):
@@ -576,26 +566,14 @@ class TempVCOverlay(discord.ui.View):
         if channel is None:
             return
 
-        value = await self._ask_for_input(interaction, "Bitte sende das neue Nutzerlimit (0-99).")
-        if not value:
-            return
-
         try:
-            limit = int(value)
-            if limit < 0 or limit > 99:
-                raise ValueError()
-            await channel.edit(user_limit=limit)
-            await interaction.followup.send(
-                f"Limit gesetzt auf {limit}.", ephemeral=True
-            )
-        except ValueError:
-            await interaction.followup.send(
-                "Bitte gib eine Zahl zwischen 0 und 99 an.", ephemeral=True
-            )
+            await interaction.response.send_modal(LimitModal())
         except Exception as e:
-            await interaction.followup.send(
-                f"Fehler beim Setzen des Limits: {e}", ephemeral=True
-            )
+            print(f"failed to send LimitModal: {e}")
+            try:
+                await interaction.response.send_message(f"Fehler: {e}", ephemeral=True)
+            except Exception:
+                pass
 
     @discord.ui.button(label="Region", style=discord.ButtonStyle.secondary, emoji="🌍", custom_id="tempvc_region")
     async def region_button(self, button: discord.ui.Button, interaction: discord.Interaction):
@@ -603,19 +581,14 @@ class TempVCOverlay(discord.ui.View):
         if channel is None:
             return
 
-        value = await self._ask_for_input(interaction, "Bitte sende die gewünschte Region (z.B. europe, us-west).")
-        if not value:
-            return
-
         try:
-            await channel.edit(rtc_region=value)
-            await interaction.followup.send(
-                f"Region gesetzt auf `{value}`.", ephemeral=True
-            )
+            await interaction.response.send_modal(RegionModal())
         except Exception as e:
-            await interaction.followup.send(
-                f"Fehler beim Setzen der Region: {e}", ephemeral=True
-            )
+            print(f"failed to send RegionModal: {e}")
+            try:
+                await interaction.response.send_message(f"Fehler: {e}", ephemeral=True)
+            except Exception:
+                pass
 
     @discord.ui.button(label="Privacy", style=discord.ButtonStyle.secondary, emoji="🔒", custom_id="tempvc_privacy")
     async def privacy_button(self, button: discord.ui.Button, interaction: discord.Interaction):
@@ -929,7 +902,36 @@ async def cleanup_temp_channel(channel):
             except Exception as e:
                 print("Chat Delete Error:", e)
 
-    bot.temp_channels.pop(channel.id, None)
+    print(f"cleanup_temp_channel: removing temp channel id={channel.id}")
+    popped = bot.temp_channels.pop(channel.id, None)
+    print(f"cleanup_temp_channel: popped={popped}")
+    print(f"temp_channels keys now: {list(bot.temp_channels.keys())}")
+
+
+async def delayed_cleanup(channel, delay: float = 3.0):
+    """Wait a short time before cleaning up a temp channel to avoid race conditions."""
+    try:
+        await asyncio.sleep(delay)
+    except Exception:
+        return
+
+    # Re-fetch channel object from guild to ensure it's current
+    guild = channel.guild
+    channel_ref = guild.get_channel(channel.id) if guild else None
+
+    # If the channel no longer exists but mapping remains, remove mapping
+    if channel_ref is None:
+        popped = bot.temp_channels.pop(channel.id, None)
+        print(f"delayed_cleanup: channel missing, popped={popped}")
+        print(f"temp_channels keys now: {list(bot.temp_channels.keys())}")
+        return
+
+    # Only cleanup if still empty and still tracked
+    if len(channel_ref.members) == 0 and channel.id in bot.temp_channels:
+        print(f"delayed_cleanup: cleaning up channel id={channel.id}")
+        await cleanup_temp_channel(channel_ref)
+    else:
+        print(f"delayed_cleanup: aborting cleanup for id={channel.id}, members={len(channel_ref.members)} tracked={channel.id in bot.temp_channels}")
 
 
 async def apply_privacy_settings(channel, data):
@@ -1397,7 +1399,6 @@ async def on_voice_state_update(member, before, after):
         )
 
         await member.move_to(channel)
-
         bot.temp_channels[channel.id] = {
             "owner": member.id,
             "trusted": [],
@@ -1409,6 +1410,9 @@ async def on_voice_state_update(member, before, after):
             "region": None,
             "limit": 0
         }
+
+        print(f"temp channel created: id={channel.id} owner={member.id}")
+        print(f"temp_channels keys now: {list(bot.temp_channels.keys())}")
 
         await send_log(
             f"🎤 Temp Voice erstellt\n"
@@ -1422,9 +1426,11 @@ async def on_voice_state_update(member, before, after):
         data = get_temp_channel_data(channel)
 
         if len(channel.members) == 0:
-            await cleanup_temp_channel(channel)
+            # Schedule delayed cleanup to avoid race conditions where members
+            # briefly leave/join while interacting with overlays.
+            asyncio.create_task(delayed_cleanup(channel, delay=3.0))
             await send_log(
-                f"🗑️ Temp Voice gelöscht\n"
+                f"🗑️ Temp Voice gelöscht (scheduled)\n"
                 f"🏠 Channel: {channel.name} ({channel.id})\n"
                 f"👤 Owner ID: {data['owner']}"
             )
