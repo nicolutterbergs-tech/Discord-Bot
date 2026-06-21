@@ -573,14 +573,24 @@ class TempVCOverlay(discord.ui.View):
         if channel is None:
             return
 
+        value = await self._ask_for_input(interaction, "Bitte schreibe den neuen Namen für deinen Temp Voice Channel in den Chat.")
+        if not value:
+            return
+
         try:
-            await interaction.response.send_modal(NameModal())
+            await channel.edit(name=value)
+            data = get_temp_channel_data(channel)
+            if data.get("chat_channel_id"):
+                chat_channel = interaction.guild.get_channel(data["chat_channel_id"])
+                if chat_channel:
+                    await chat_channel.edit(name=f"{value}-chat")
+            await interaction.followup.send(
+                f"Name geändert zu `{value}`.", ephemeral=True
+            )
         except Exception as e:
-            print(f"failed to send NameModal: {e}")
-            try:
-                await interaction.response.send_message(f"Fehler: {e}", ephemeral=True)
-            except Exception:
-                pass
+            await interaction.followup.send(
+                f"Fehler beim Ändern des Namens: {e}", ephemeral=True
+            )
 
     @discord.ui.button(label="Limit", style=discord.ButtonStyle.secondary, emoji="🔢", custom_id="tempvc_limit")
     async def limit_button(self, button: discord.ui.Button, interaction: discord.Interaction):
