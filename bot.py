@@ -282,6 +282,21 @@ def parse_member_guild_member(guild, text):
     return None
 
 
+def resolve_member(user_or_member, guild=None):
+    """Return a Guild Member if possible, otherwise return the original object.
+
+    This helps when `interaction.user` may be a User proxy without voice state.
+    """
+    try:
+        if guild is not None:
+            member = guild.get_member(user_or_member.id)
+            if member:
+                return member
+    except Exception:
+        pass
+    return user_or_member
+
+
 class MemberActionModal(discord.ui.Modal, title="Temp Voice Mitglied"):
     member_text = discord.ui.TextInput(
         label="Mitglied",
@@ -296,8 +311,9 @@ class MemberActionModal(discord.ui.Modal, title="Temp Voice Mitglied"):
         self.action = action
 
     async def on_submit(self, interaction: discord.Interaction):
-        channel = get_member_voice_temp_channel(interaction.user)
-        if channel is None or not is_temp_owner(interaction.user, channel):
+        member = resolve_member(interaction.user, interaction.guild)
+        channel = get_member_voice_temp_channel(member)
+        if channel is None or not is_temp_owner(member, channel):
             return await interaction.response.send_message(
                 "Nur der Besitzer kann diese Aktion ausführen.", ephemeral=True
             )
@@ -408,8 +424,9 @@ class NameModal(discord.ui.Modal, title="Temp Voice Name ändern"):
     )
 
     async def on_submit(self, interaction: discord.Interaction):
-        channel = get_member_voice_temp_channel(interaction.user)
-        if channel is None or not is_temp_owner(interaction.user, channel):
+        member = resolve_member(interaction.user, interaction.guild)
+        channel = get_member_voice_temp_channel(member)
+        if channel is None or not is_temp_owner(member, channel):
             return await interaction.response.send_message(
                 "Nur der Besitzer kann den Namen ändern.", ephemeral=True
             )
@@ -438,8 +455,9 @@ class LimitModal(discord.ui.Modal, title="Temp Voice Limit setzen"):
     )
 
     async def on_submit(self, interaction: discord.Interaction):
-        channel = get_member_voice_temp_channel(interaction.user)
-        if channel is None or not is_temp_owner(interaction.user, channel):
+        member = resolve_member(interaction.user, interaction.guild)
+        channel = get_member_voice_temp_channel(member)
+        if channel is None or not is_temp_owner(member, channel):
             return await interaction.response.send_message(
                 "Nur der Besitzer kann das Limit setzen.", ephemeral=True
             )
@@ -470,8 +488,9 @@ class RegionModal(discord.ui.Modal, title="Temp Voice Region setzen"):
     )
 
     async def on_submit(self, interaction: discord.Interaction):
-        channel = get_member_voice_temp_channel(interaction.user)
-        if channel is None or not is_temp_owner(interaction.user, channel):
+        member = resolve_member(interaction.user, interaction.guild)
+        channel = get_member_voice_temp_channel(member)
+        if channel is None or not is_temp_owner(member, channel):
             return await interaction.response.send_message(
                 "Nur der Besitzer kann die Region ändern.", ephemeral=True
             )
@@ -492,8 +511,9 @@ class TempVCOverlay(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         try:
-            channel = get_member_voice_temp_channel(interaction.user)
-            print(f"interaction_check: user={interaction.user} user_id={interaction.user.id} channel={channel}")
+            member = resolve_member(interaction.user, interaction.guild)
+            channel = get_member_voice_temp_channel(member)
+            print(f"interaction_check: user={interaction.user} resolved_member={member} user_id={interaction.user.id} channel={channel}")
             if channel is None:
                 await interaction.response.send_message(
                     "Du musst dich zuerst in deinem Temp Voice befinden, um diese Aktion zu nutzen. "
@@ -511,8 +531,9 @@ class TempVCOverlay(discord.ui.View):
             return False
 
     async def _get_temp_channel(self, interaction):
-        channel = get_member_voice_temp_channel(interaction.user)
-        print(f"_get_temp_channel: user={interaction.user} channel={channel}")
+        member = resolve_member(interaction.user, interaction.guild)
+        channel = get_member_voice_temp_channel(member)
+        print(f"_get_temp_channel: user={interaction.user} resolved_member={member} channel={channel}")
         if channel is None:
             await interaction.response.send_message(
                 "Du musst dich zuerst in deinem Temp Voice befinden, um diese Aktion zu nutzen. "
