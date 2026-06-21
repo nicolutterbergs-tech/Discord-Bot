@@ -52,8 +52,13 @@ intents.members = True
 
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 bot.temp_channels = {}
+bot.ticket_channels = {}
 bot.active_temp_views = []
 bot.active_views = []
+
+TICKET_CATEGORY_NAME = "Support Tickets"
+TICKET_PANEL_CHANNEL_NAME = "🎫ticket"
+TICKET_CHANNEL_PREFIX = "ticket-"
 
 
 @bot.command(name="ping")
@@ -248,6 +253,67 @@ def is_temp_channel(channel):
         cid = None
     print(f"is_temp_channel: channel_id={cid} known={result}")
     return result
+
+
+def is_ticket_channel(channel):
+    return channel is not None and channel.id in bot.ticket_channels
+
+
+def get_ticket_owner(channel):
+    return bot.ticket_channels.get(channel.id)
+
+
+def get_existing_ticket_channel(guild, owner_id):
+    for channel_id, user_id in list(bot.ticket_channels.items()):
+        if user_id != owner_id:
+            continue
+        channel = guild.get_channel(channel_id)
+        if channel is None:
+            bot.ticket_channels.pop(channel_id, None)
+            continue
+        return channel
+    return None
+
+
+def get_ticket_category(guild):
+    category = discord.utils.get(guild.categories, name=TICKET_CATEGORY_NAME)
+    return category
+
+
+def find_ticket_panel_channel(guild):
+    return discord.utils.get(guild.text_channels, name=TICKET_PANEL_CHANNEL_NAME)
+
+
+def sanitize_channel_name(name):
+    sanitized = re.sub(r"[^a-z0-9\-]", "-", name.lower())
+    return re.sub(r"-+", "-", sanitized).strip("-")[:80]
+
+
+def staff_roles(guild):
+    return [role for role in guild.roles if role.permissions.administrator or role.permissions.manage_guild or role.permissions.manage_channels or role.permissions.manage_messages]
+
+
+class TicketCloseView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Ticket schließen", style=discord.ButtonStyle.danger, emoji="🗑️", custom_id="ticket_close")
+    async def close_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        channel = interaction.channel
+        if not is_ticket_channel(channel):
+            return await interaction.response.send_message("Dieser Kanal ist kein Ticket-Kanal.", ephemeral=True)
+
+        owner_id = get_ticket_owner(channel)
+        if owner_id != interaction.user.id and not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("Nur der Ticket-Ersteller oder ein Administrator kann das Ticket schließen.", ephemeral=True)
+
+        await interaction.response.send_message("Ticket wird geschlossen...", ephemeral=True)
+        bot.ticket_channels.pop(channel.id, None)
+        try:
+            await channel.delete()
+        except Exception as e:
+            print(f"Ticket löschen fehlgeschlagen: {e}")
+
 
 
 def is_temp_owner(member, channel):
@@ -881,6 +947,116 @@ async def setupvc_prefix(ctx: commands.Context):
     await ctx.send("Temp Voice Overlay wurde eingerichtet.", embed=embed, view=view)
 
 
+class TicketPanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Ticket erstellen", style=discord.ButtonStyle.success, emoji="🎫", custom_id="ticket_panel_create")
+    async def create_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild = interaction.guild
+        if guild is None:
+            return await interaction.response.send_message(
+                "Dieses Ticket kann nur auf einem Server erstellt werden.", ephemeral=True
+            )
+
+        existing = get_existing_ticket_channel(guild, interaction.user.id)
+        if existing:
+            return await interaction.response.send_message(
+                f"Du hast bereits ein Ticket: {existing.mention}", ephemeral=True
+            )
+
+        category = get_ticket_category(guild)
+        if category is None:
+            category = await guild.create_category(TICKET_CATEGORY_NAME)
+
+        name = f"{TICKET_CHANNEL_PREFIX}{sanitize_channel_name(interaction.user.display_name)}-{interaction.user.id}"
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
+        }
+        for role in staff_roles(guild):
+            overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
+
+        channel = await guild.create_text_channel(
+            name=name,
+            category=category,
+            overwrites=overwrites,
+            reason="Support-Ticket erstellt"
+        )
+
+        bot.ticket_channels[channel.id] = interaction.user.id
+
+        try:
+            await channel.send(
+                f"{interaction.user.mention} Danke, dein Ticket wurde erstellt. Ein Support-Mitglied wird sich in Kürze darum kümmern.",
+                view=TicketCloseView()
+            )
+        except Exception:
+            pass
+
+        await interaction.response.send_message(
+            f"Dein Ticket wurde erstellt: {channel.mention}", ephemeral=True
+        )
+
+        await send_log(
+            f"🎫 Ticket geöffnet\nBenutzer: {interaction.user} ({interaction.user.id})\nKanal: {channel.name} ({channel.id})\nServer: {guild.name} ({guild.id})"
+        )
+
+
+@bot.command(name="setupticket")
+@commands.has_permissions(administrator=True)
+async def setupticket_prefix(ctx: commands.Context):
+    category = get_ticket_category(ctx.guild)
+    if category is None:
+        category = await ctx.guild.create_category(TICKET_CATEGORY_NAME)
+
+    panel_channel = find_ticket_panel_channel(ctx.guild)
+    if panel_channel is None:
+        panel_channel = await ctx.guild.create_text_channel(
+            name=TICKET_PANEL_CHANNEL_NAME,
+            category=category,
+            overwrites={ctx.guild.default_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)}
+        )
+
+    embed = discord.Embed(
+        title="🎫 Ticket-System",
+        description="Klicke auf den Button, um ein Support-Ticket zu erstellen.",
+        color=discord.Color.green()
+    )
+    await panel_channel.send(embed=embed, view=TicketPanelView())
+    await ctx.send(f"Ticket-Panel wurde eingerichtet in {panel_channel.mention}.")
+
+
+@bot.tree.command(name="setupticket", description="Richtet das Ticket-System automatisch ein.")
+async def setupticket(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message(
+            "Nur Administratoren können das Setup ausführen.", ephemeral=True
+        )
+
+    category = get_ticket_category(interaction.guild)
+    if category is None:
+        category = await interaction.guild.create_category(TICKET_CATEGORY_NAME)
+
+    panel_channel = find_ticket_panel_channel(interaction.guild)
+    if panel_channel is None:
+        panel_channel = await interaction.guild.create_text_channel(
+            name=TICKET_PANEL_CHANNEL_NAME,
+            category=category,
+            overwrites={interaction.guild.default_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)}
+        )
+
+    embed = discord.Embed(
+        title="🎫 Ticket-System",
+        description="Klicke auf den Button, um ein Support-Ticket zu erstellen.",
+        color=discord.Color.green()
+    )
+    await panel_channel.send(embed=embed, view=TicketPanelView())
+    await interaction.response.send_message(
+        f"Ticket-Panel wurde eingerichtet in {panel_channel.mention}.", ephemeral=True
+    )
+
+
 @bot.tree.command(name="setupvc", description="Erstellt das Temp-Voice-Overlay für den Server.")
 async def setupvc(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
@@ -917,6 +1093,8 @@ async def on_ready():
     try:
         await bot.tree.sync()
         bot.add_view(TempVCOverlay())
+        bot.add_view(TicketPanelView())
+        bot.add_view(TicketCloseView())
         for guild in bot.guilds:
             try:
                 await bot.tree.sync(guild=guild)
@@ -1484,6 +1662,10 @@ async def on_voice_state_update(member, before, after):
                 f"🏠 Channel: {channel.name} ({channel.id})\n"
                 f"👤 Owner ID: {data['owner']}"
             )
+
+    if before.channel and before.channel.id in bot.ticket_channels and len(before.channel.members) == 0:
+        # Optional: cleanup abandoned ticket channels when empty
+        bot.ticket_channels.pop(before.channel.id, None)
 
     if after.channel and after.channel.id in bot.temp_channels:
         await enforce_temp_access(member, after.channel)
