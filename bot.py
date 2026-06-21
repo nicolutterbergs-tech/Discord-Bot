@@ -8,6 +8,8 @@ from datetime import timedelta
 from flask import Flask
 from threading import Thread
 import traceback
+import io
+import json
 
 # =========================
 # KEEP ALIVE
@@ -41,6 +43,7 @@ if not TOKEN:
 LOG_CHANNEL_ID = 1509957389674348717
 PREFIX = "!"
 CREATOR_CHANNEL_ID = 1516541407853281331
+TRANSCRIPT_CHANNEL_ID = 1349444934121553971
 
 
 # =========================
@@ -313,11 +316,113 @@ class TicketCloseView(discord.ui.View):
             return await interaction.response.send_message("Nur der Ticket-Ersteller oder ein Administrator kann das Ticket schließen.", ephemeral=True)
 
         await interaction.response.send_message("Ticket wird geschlossen...", ephemeral=True)
+        try:
+            await create_ticket_transcript(channel)
+        except Exception as e:
+            print(f"Fehler beim Erstellen des Transkripts: {e}")
         bot.ticket_channels.pop(channel.id, None)
         try:
             await channel.delete()
         except Exception as e:
             print(f"Ticket löschen fehlgeschlagen: {e}")
+
+
+async def create_ticket_transcript(channel: discord.TextChannel):
+    """Fetch channel history and send both a TXT transcript and a JSON export (including bot state) to the transcript channel."""
+    try:
+        messages = []
+        async for m in channel.history(limit=None, oldest_first=True):
+            messages.append(m)
+
+        # Plain text transcript lines
+        lines = []
+        # Structured messages for JSON
+        structured = []
+
+        for m in messages:
+            timestamp = m.created_at.isoformat()
+            author_str = f"{m.author} ({m.author.id})"
+            content = m.content or ""
+            attachments = []
+            for a in m.attachments:
+                attachments.append({
+                    "filename": a.filename,
+                    "url": a.url,
+                    "size": getattr(a, "size", None)
+                })
+
+            if attachments:
+                attach_text = "\n" + "\n".join(f"[attachment] {att['url']}" for att in attachments)
+            else:
+                attach_text = ""
+
+            lines.append(f"[{timestamp}] {author_str}: {content}{attach_text}")
+
+            structured.append({
+                "id": m.id,
+                "timestamp": timestamp,
+                "author": {"id": m.author.id, "name": str(m.author)},
+                "content": content,
+                "attachments": attachments,
+                "pinned": m.pinned
+            })
+
+        txt_body = "(kein Inhalt)" if not lines else "\n".join(lines)
+        txt_bio = io.BytesIO(txt_body.encode("utf-8"))
+        txt_bio.seek(0)
+        txt_filename = f"transcript-{channel.name}-{channel.id}.txt"
+
+        # JSON export with channel metadata and bot state snapshot
+        json_data = {
+            "channel": {
+                "id": channel.id,
+                "name": channel.name,
+                "topic": getattr(channel, "topic", None),
+                "created_at": channel.created_at.isoformat() if getattr(channel, "created_at", None) else None
+            },
+            "guild": {
+                "id": channel.guild.id if channel.guild else None,
+                "name": channel.guild.name if channel.guild else None
+            },
+            "messages": structured,
+            "ticket_owner_id": bot.ticket_channels.get(channel.id),
+            "bot_state": {
+                "ticket_channels": bot.ticket_channels,
+                "temp_channels": bot.temp_channels
+            }
+        }
+
+        json_body = json.dumps(json_data, ensure_ascii=False, default=str, indent=2)
+        json_bio = io.BytesIO(json_body.encode("utf-8"))
+        json_bio.seek(0)
+        json_filename = f"transcript-{channel.name}-{channel.id}.json"
+
+        target = bot.get_channel(TRANSCRIPT_CHANNEL_ID)
+        if target is None:
+            try:
+                target = await bot.fetch_channel(TRANSCRIPT_CHANNEL_ID)
+            except Exception:
+                target = None
+
+        embed = discord.Embed(
+            title="🎫 Ticket-Export",
+            description=f"Transkript + JSON-Export für {channel.name} ({channel.id})",
+            color=discord.Color.greyple()
+        )
+
+        owner_id = bot.ticket_channels.get(channel.id)
+        if owner_id:
+            embed.add_field(name="Ersteller ID", value=str(owner_id), inline=True)
+
+        if target:
+            try:
+                await target.send(embed=embed, files=[discord.File(txt_bio, txt_filename), discord.File(json_bio, json_filename)])
+            except Exception as e:
+                print(f"Fehler beim Senden des Exports: {e}")
+        else:
+            print("Transkript-Kanal nicht gefunden; Export nicht gesendet.")
+    except Exception as e:
+        print(f"create_ticket_transcript error: {e}")
 
 
 
