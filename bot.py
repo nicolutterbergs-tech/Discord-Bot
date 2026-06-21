@@ -557,7 +557,12 @@ class TempVCOverlay(discord.ui.View):
 
         try:
             message = await bot.wait_for("message", timeout=timeout, check=check)
-            return message.content.strip()
+            content = message.content.strip()
+            try:
+                await message.delete()
+            except Exception:
+                pass
+            return content
         except asyncio.TimeoutError:
             await interaction.followup.send(
                 "Zeit abgelaufen. Bitte erneut versuchen.",
