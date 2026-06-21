@@ -52,11 +52,30 @@ intents.members = True
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 bot.temp_channels = {}
 bot.active_temp_views = []
+bot.active_views = []
 
 
 @bot.command(name="ping")
 async def ping(ctx: commands.Context):
     await ctx.send("Pong!")
+
+
+@bot.command(name="vcdebug")
+async def vcdebug(ctx: commands.Context):
+    """Debug-Befehl: zeigt Voice-Channel-Status und Temp-Channel-Daten für den Aufrufer."""
+    member = ctx.author
+    channel = member.voice.channel if member.voice else None
+    temp = is_temp_channel(channel)
+    data = get_temp_channel_data(channel)
+    keys = list(bot.temp_channels.keys())
+    msg = (
+        f"voice_channel={channel}\n"
+        f"channel_id={channel.id if channel else None}\n"
+        f"is_temp={temp}\n"
+        f"temp_data={data}\n"
+        f"known_temp_channel_ids={keys[:50]}"
+    )
+    await ctx.send(f"```\n{msg}\n```")
 
 
 @bot.event
@@ -221,7 +240,13 @@ def get_temp_channel_data(channel):
 
 
 def is_temp_channel(channel):
-    return channel is not None and channel.id in bot.temp_channels
+    result = channel is not None and channel.id in bot.temp_channels
+    try:
+        cid = channel.id if channel is not None else None
+    except Exception:
+        cid = None
+    print(f"is_temp_channel: channel_id={cid} known={result}")
+    return result
 
 
 def is_temp_owner(member, channel):
@@ -235,7 +260,14 @@ def get_voice_temp_channel(ctx):
 
 
 def get_member_voice_temp_channel(member):
-    channel = member.voice.channel if member.voice else None
+    channel = None
+    try:
+        channel = member.voice.channel if member.voice else None
+    except Exception as e:
+        print(f"get_member_voice_temp_channel: error fetching voice for {member}: {e}")
+
+    cid = channel.id if channel is not None else None
+    print(f"get_member_voice_temp_channel: member={member} channel_id={cid}")
     return channel if is_temp_channel(channel) else None
 
 
@@ -454,24 +486,32 @@ class RegionModal(discord.ui.Modal, title="Temp Voice Region setzen"):
 
 
 class TempVCOverlay(discord.ui.View):
-    def __init__(self, owner_id: int | None = None):
+    def __init__(self):
         super().__init__(timeout=None)
-        self.owner_id = owner_id
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        print(f"TempVCOverlay interaction_check: user={interaction.user} owner_id={self.owner_id}")
-        if self.owner_id is None:
+        try:
+            channel = get_member_voice_temp_channel(interaction.user)
+            print(f"interaction_check: user={interaction.user} user_id={interaction.user.id} channel={channel}")
+            if channel is None:
+                await interaction.response.send_message(
+                    "Du musst dich zuerst in deinem Temp Voice befinden, um diese Aktion zu nutzen. "
+                    "Betritt dazu den Erstelle-Channel und erstelle einen Temp Voice.",
+                    ephemeral=True
+                )
+                return False
             return True
-        if interaction.user.id != self.owner_id:
-            await interaction.response.send_message(
-                "Nur der Ersteller kann dieses Overlay benutzen.",
-                ephemeral=True
-            )
+        except Exception as e:
+            print(f"interaction_check error: {e}")
+            try:
+                await interaction.response.send_message("Interne Fehler beim Verarbeiten der Interaktion.", ephemeral=True)
+            except Exception:
+                pass
             return False
-        return True
 
     async def _get_temp_channel(self, interaction):
         channel = get_member_voice_temp_channel(interaction.user)
+        print(f"_get_temp_channel: user={interaction.user} channel={channel}")
         if channel is None:
             await interaction.response.send_message(
                 "Du musst dich zuerst in deinem Temp Voice befinden, um diese Aktion zu nutzen. "
@@ -792,7 +832,7 @@ async def tempvc(ctx):
     embed.add_field(name="Zugriff verwalten", value="Trust / Untrust / Invite / Block / Unblock", inline=False)
     embed.add_field(name="Sonstiges", value="Kick / Claim / Transfer / Delete", inline=False)
 
-    view = TempVCOverlay(ctx.author.id)
+    view = TempVCOverlay()
     bot.active_temp_views.append(view)
     await ctx.send(embed=embed, view=view)
 
@@ -812,7 +852,7 @@ async def setupvc_prefix(ctx: commands.Context):
     embed.add_field(name="Zugriff verwalten", value="Trust / Untrust / Invite / Block / Unblock", inline=False)
     embed.add_field(name="Sonstiges", value="Kick / Claim / Transfer / Delete", inline=False)
 
-    view = TempVCOverlay(None)
+    view = TempVCOverlay()
     bot.active_temp_views.append(view)
     await ctx.send("Temp Voice Overlay wurde eingerichtet.", embed=embed, view=view)
 
@@ -836,7 +876,7 @@ async def setupvc(interaction: discord.Interaction):
     embed.add_field(name="Zugriff verwalten", value="Trust / Untrust / Invite / Block / Unblock", inline=False)
     embed.add_field(name="Sonstiges", value="Kick / Claim / Transfer / Delete", inline=False)
 
-    view = TempVCOverlay(None)
+    view = TempVCOverlay()
     bot.active_temp_views.append(view)
     await interaction.response.send_message(
         "Temp Voice Overlay wurde eingerichtet.", embed=embed, view=view
@@ -853,6 +893,7 @@ async def on_ready():
 
     try:
         await bot.tree.sync()
+        bot.add_view(TempVCOverlay())
         for guild in bot.guilds:
             try:
                 await bot.tree.sync(guild=guild)
@@ -1313,8 +1354,10 @@ async def on_message(message):
                 # Button nur in DM schicken
                 if dm_msg:
                     try:
-                        await message.author.send(view=AppealView())
-                    except:
+                        appeal_view = AppealView()
+                        bot.active_views.append(appeal_view)
+                        await message.author.send(view=appeal_view)
+                    except Exception:
                         pass
 
     await bot.process_commands(message)
