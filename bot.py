@@ -115,8 +115,26 @@ async def send_log(content):
 # REGEX
 # =========================
 link_regex = re.compile(
-    r"(https?://|www\.|discord\.gg/|discord\.com/invite/)"
+    r"(https?://|www\.|discord\.gg/|discord\.com/invite/)",
+    re.IGNORECASE
 )
+
+invite_regex = re.compile(
+    r"(?:discord(?:app)?\.gg/|discord\.com/invite/)",
+    re.IGNORECASE
+)
+
+bad_word_list = {
+    "arsch", "scheiße", "scheisse", "fuck", "shit", "kacke", "hure", "dummkopf"
+}
+bad_word_regex = re.compile(
+    r"\b(" + "|".join(re.escape(word) for word in bad_word_list) + r")\b",
+    re.IGNORECASE
+)
+
+MAX_MENTIONS = 5
+CAPS_RATIO_THRESHOLD = 0.70
+CAPS_MIN_LENGTH = 10
 
 
 # =========================
@@ -1554,6 +1572,151 @@ def parse_bool(value):
     return None
 
 
+def message_has_profanity(content: str) -> bool:
+    return bool(bad_word_regex.search(content))
+
+
+def message_is_caps_spam(content: str) -> bool:
+    if len(content) < CAPS_MIN_LENGTH:
+        return False
+    letters = [c for c in content if c.isalpha()]
+    if not letters:
+        return False
+    upper = sum(1 for c in letters if c.isupper())
+    return (upper / len(letters)) >= CAPS_RATIO_THRESHOLD
+
+
+def message_mention_spam(message: discord.Message) -> bool:
+    return len(message.mentions) > MAX_MENTIONS
+
+
+class AppealView(discord.ui.View):
+    def __init__(self, guild_name: str, original_content: str):
+        super().__init__(timeout=None)
+        self.guild_name = guild_name
+        self.original_content = original_content
+
+    @discord.ui.button(
+        label="📝 Einspruch starten",
+        style=discord.ButtonStyle.primary
+    )
+    async def start(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(
+            "✍️ Bitte sende jetzt deinen Einspruch hier in den Chat. "
+            "Der Bot leitet ihn automatisch an das Moderationsteam weiter.",
+            ephemeral=True
+        )
+
+        def check(m):
+            return m.author == interaction.user and isinstance(m.channel, discord.DMChannel)
+
+        try:
+            msg = await bot.wait_for("message", timeout=300.0, check=check)
+            await send_log(
+                f"📩 EINSPRUCH ERHALTEN\n"
+                f"👤 User: {interaction.user} ({interaction.user.id})\n"
+                f"🏛️ Server: {self.guild_name}\n"
+                f"📄 Einspruch: {msg.content}\n"
+                f"🔗 Originalnachricht: {self.original_content}"
+            )
+            try:
+                await interaction.user.send(
+                    "✅ Dein Einspruch wurde an das Moderationsteam weitergeleitet."
+                )
+            except Exception:
+                pass
+        except asyncio.TimeoutError:
+            try:
+                await interaction.user.send("⏳ Zeit abgelaufen. Bitte versuche es erneut.")
+            except Exception:
+                pass
+
+
+async def send_auto_mod_log(reason: str, message: discord.Message):
+    content = (
+        f"🚨 Auto-Mod: {reason}\n"
+        f"User: {message.author} ({message.author.id})\n"
+        f"Server: {message.guild.name} ({message.guild.id})\n"
+        f"Kanal: {message.channel.name} ({message.channel.id})\n"
+        f"Inhalt: {message.content[:1500] or '(kein Inhalt)'}"
+    )
+    await send_log(content)
+
+
+async def moderate_message(message: discord.Message, reason: str, timeout_minutes: int = 0):
+    original_content = message.content or ""
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    if timeout_minutes > 0:
+        try:
+            await message.author.timeout(
+                timedelta(minutes=timeout_minutes),
+                reason=reason
+            )
+        except Exception:
+            pass
+
+    await send_auto_mod_log(reason, message)
+
+    embed = discord.Embed(
+        title="🚨 Moderationsmaßnahme",
+        description=(
+            f"Hallo {message.author.mention},\n\n"
+            f"deine Nachricht auf **{message.guild.name}** wurde entfernt."
+        ),
+        color=discord.Color.orange()
+    )
+    embed.add_field(name="📋 Grund", value=reason, inline=True)
+    if timeout_minutes > 0:
+        embed.add_field(name="⏳ Dauer", value=f"{timeout_minutes} Minuten", inline=True)
+    embed.add_field(name="🔗 Inhalt", value=original_content[:1024] or "(kein Inhalt)", inline=False)
+    embed.set_footer(text="Automatische Moderation")
+    if message.guild.icon:
+        embed.set_thumbnail(url=message.guild.icon.url)
+
+    try:
+        dm_msg = await message.author.send(embed=embed)
+        appeal_view = AppealView(message.guild.name, original_content)
+        bot.active_views.append(appeal_view)
+        try:
+            await message.author.send(view=appeal_view)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+async def evaluate_auto_mod(message: discord.Message):
+    if message.author.bot or message.author.guild_permissions.administrator:
+        return None
+    if not message.guild:
+        return None
+
+    content = message.content or ""
+    if not content.strip() and not message.attachments:
+        return None
+
+    if link_regex.search(content):
+        return "Link Spam", 24 * 60
+
+    if invite_regex.search(content):
+        return "Einladungslink", 24 * 60
+
+    if message_has_profanity(content):
+        return "Profanität", 10
+
+    if message_mention_spam(message):
+        return "Erwähnungsspam", 15
+
+    if message_is_caps_spam(content):
+        return "Caps-Lock-Spam", 15
+
+    return None
+
+
 # =========================
 # LINK PROTECTION + DM TICKET SYSTEM
 # =========================
@@ -1566,117 +1729,13 @@ async def on_message(message):
         print(f"Received prefix message from {message.author}: {message.content}")
 
     if not message.author.guild_permissions.administrator:
-        if link_regex.search(message.content):
-            try:
-                original_content = message.content
-
-                await message.delete()
-
-                # =========================
-                # TIMEOUT
-                # =========================
-                await message.author.timeout(
-                    timedelta(days=1),
-                    reason="Link Spam"
-                )
-
-            except Exception as e:
-                print(f"Fehler: {e}")
-                # =========================
-                # DM EMBED
-                # =========================
-                embed = discord.Embed(
-                    title="🚨 Moderationsmaßnahme",
-                    description=(
-                        f"Hallo {message.author.mention},\n\n"
-                        f"du wurdest auf **{message.guild.name}** "
-                        f"für 1 Tag eingeschränkt."
-                    ),
-                    color=discord.Color.orange()
-                )
-
-                embed.add_field(name="📋 Grund", value="Link Spam", inline=True)
-                embed.add_field(name="⏳ Dauer", value="1 Tag", inline=True)
-
-                embed.add_field(
-                    name="🔗 Inhalt",
-                    value=original_content[:1024],
-                    inline=False
-                )
-
-                embed.set_footer(text="Automatische Moderation")
-
-                if message.guild.icon:
-                    embed.set_thumbnail(url=message.guild.icon.url)
-
-
-                # =========================
-                # DM SENDEN
-                # =========================
-                try:
-                    dm_msg = await message.author.send(embed=embed)
-                except discord.Forbidden:
-                    dm_msg = None
-
-
-                # =========================
-                # DM TICKET SYSTEM
-                # =========================
-                class AppealView(discord.ui.View):
-                    def __init__(self):
-                        super().__init__(timeout=None)
-
-                    @discord.ui.button(
-                        label="📝 Einspruch starten",
-                        style=discord.ButtonStyle.primary
-                    )
-                    async def start(self, interaction: discord.Interaction, button: discord.ui.Button):
-
-                        await interaction.response.send_message(
-                            "✍️ Bitte schreibe jetzt deinen Einspruch hier in den Chat.\n"
-                            "Der Bot sendet ihn automatisch an das Moderationsteam.",
-                            ephemeral=True
-                        )
-
-                        def check(m):
-                            return m.author == interaction.user and isinstance(m.channel, discord.DMChannel)
-
-                        try:
-                            msg = await bot.wait_for("message", timeout=300.0, check=check)
-
-                            await send_log(
-                                f"📩 EINSPRUCH ERHALTEN\n"
-                                f"👤 User: {interaction.user} ({interaction.user.id})\n"
-                                f"🏛️ Server: {message.guild.name}\n"
-                                f"📄 Inhalt: {msg.content}\n"
-                                f"🔗 Original Nachricht: {original_content}"
-                            )
-
-                            await interaction.user.send(
-                                "✅ Dein Einspruch wurde an das Moderationsteam weitergeleitet."
-                            )
-
-                        except Exception:
-                            await interaction.user.send("⏳ Zeit abgelaufen. Bitte erneut versuchen.")
-
- 
-
-               
-
-                # Button nur in DM schicken
-                if dm_msg:
-                    try:
-                        appeal_view = AppealView()
-                        bot.active_views.append(appeal_view)
-                        await message.author.send(view=appeal_view)
-                    except Exception:
-                        pass
+        result = await evaluate_auto_mod(message)
+        if result is not None:
+            reason, timeout_minutes = result
+            await moderate_message(message, reason, timeout_minutes)
+            return
 
     await bot.process_commands(message)
-
-
-
-
 
 
 @bot.event
