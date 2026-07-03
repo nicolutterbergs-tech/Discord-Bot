@@ -1485,11 +1485,7 @@ async def automod_slash(interaction: discord.Interaction):
         description="Hier siehst du, welche Regeln der Auto-Moderation aktuell prüft.",
         color=discord.Color.orange()
     )
-    embed.add_field(name="Link-Protection", value="URLs und Einladungen werden entfernt und ggf. bestraft.", inline=False)
-    embed.add_field(name="Invite-Protection", value="Discord Invite-Links werden entfernt.", inline=False)
-    embed.add_field(name="Schimpfwörter", value="Profane Wörter werden entfernt.", inline=False)
-    embed.add_field(name="Erwähnungsspam", value=f"Mehr als {MAX_MENTIONS} Erwähnungen entfernt.", inline=False)
-    embed.add_field(name="Caps-Spam", value=f"Mehr als {int(CAPS_RATIO_THRESHOLD*100)}% Großbuchstaben in langen Nachrichten entfernt.", inline=False)
+    embed.add_field(name="Beleidigungen", value="Beleidigende Wörter werden entfernt und der Nutzer erhält einen 24-Stunden-Timeout.", inline=False)
     embed.add_field(name="Ausnahme", value="Administratoren werden nicht automatisch moderiert.", inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -1755,20 +1751,8 @@ async def evaluate_auto_mod(message: discord.Message):
     if not content.strip() and not message.attachments:
         return None
 
-    if link_regex.search(content):
-        return "Link Spam", 24 * 60
-
-    if invite_regex.search(content):
-        return "Einladungslink", 24 * 60
-
     if message_has_profanity(content):
-        return "Profanität", 10
-
-    if message_mention_spam(message):
-        return "Erwähnungsspam", 15
-
-    if message_is_caps_spam(content):
-        return "Caps-Lock-Spam", 15
+        return "Beleidigung", 24 * 60
 
     return None
 
