@@ -56,6 +56,172 @@ intents.members = True
 intents.reactions = True
 
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
+
+# =========================
+# MUSIC
+# =========================
+try:
+    import yt_dlp as youtube_dl
+except ImportError:
+    try:
+        import youtube_dl
+    except ImportError:
+        youtube_dl = None
+
+YTDL_OPTIONS = {
+    "format": "bestaudio/best",
+    "quiet": True,
+    "default_search": "auto",
+    "source_address": "0.0.0.0",
+    "nocheckcertificate": True,
+    "ignoreerrors": True,
+}
+
+FFMPEG_OPTIONS = {
+    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+    "options": "-vn"
+}
+
+
+def is_audio_url(query: str) -> bool:
+    return query.startswith("http://") or query.startswith("https://")
+
+
+async def create_ytdl_source(search: str):
+    if youtube_dl is None:
+        raise RuntimeError(
+            "Musikwiedergabe von YouTube erfordert die Installation von yt_dlp oder youtube_dl."
+        )
+
+    loop = asyncio.get_running_loop()
+
+    def extract():
+        return youtube_dl.YoutubeDL(YTDL_OPTIONS).extract_info(search, download=False)
+
+    data = await loop.run_in_executor(None, extract)
+    if data is None:
+        raise RuntimeError("Keine Audioquelle gefunden.")
+
+    if "entries" in data:
+        data = next((entry for entry in data["entries"] if entry), None)
+        if data is None:
+            raise RuntimeError("Keine Audioquelle gefunden.")
+
+    url = data.get("url")
+    title = data.get("title") or search
+    if url is None:
+        raise RuntimeError("Konnte die Audio-URL nicht extrahieren.")
+
+    return url, title
+
+
+async def get_audio_source(search: str):
+    if is_audio_url(search):
+        if youtube_dl is not None:
+            try:
+                return await create_ytdl_source(search)
+            except Exception:
+                return search, os.path.basename(search)
+        return search, os.path.basename(search)
+
+    if youtube_dl is not None:
+        return await create_ytdl_source(search)
+
+    raise RuntimeError(
+        "Für die Musiksuche benötigst du yt_dlp oder youtube_dl. Alternativ nutze einen direkten MP3/OGG-Link."
+    )
+
+
+@bot.tree.command(name="join", description="Bringt mich in deinen Voice-Channel.")
+async def join_slash(interaction: discord.Interaction):
+    if interaction.user.voice is None or interaction.user.voice.channel is None:
+        return await interaction.response.send_message("Du musst zuerst in einem Voice-Channel sein.", ephemeral=True)
+
+    channel = interaction.user.voice.channel
+    voice_client = interaction.guild.voice_client
+    if voice_client is not None:
+        await voice_client.move_to(channel)
+    else:
+        await channel.connect()
+
+    await interaction.response.send_message(f"Ich bin dem Kanal {channel.mention} beigetreten.")
+
+
+@bot.tree.command(name="leave", description="Lässt mich den Voice-Channel verlassen.")
+async def leave_slash(interaction: discord.Interaction):
+    voice_client = interaction.guild.voice_client
+    if voice_client is None:
+        return await interaction.response.send_message("Ich bin in keinem Voice-Channel.", ephemeral=True)
+
+    await voice_client.disconnect()
+    await interaction.response.send_message("Ich habe den Voice-Channel verlassen.")
+
+
+@bot.tree.command(name="play", description="Spielt Musik von YouTube oder einer URL ab.")
+@app_commands.describe(query="YouTube-URL oder Suchbegriff")
+async def play_slash(interaction: discord.Interaction, query: str):
+    if interaction.user.voice is None or interaction.user.voice.channel is None:
+        return await interaction.response.send_message("Du musst zuerst in einem Voice-Channel sein.", ephemeral=True)
+
+    channel = interaction.user.voice.channel
+    voice_client = interaction.guild.voice_client
+
+    if voice_client is None:
+        voice_client = await channel.connect()
+    elif voice_client.channel != channel:
+        await voice_client.move_to(channel)
+
+    if voice_client.is_playing():
+        voice_client.stop()
+
+    await interaction.response.defer()
+    try:
+        source_url, title = await get_audio_source(query)
+    except Exception as e:
+        return await interaction.followup.send(f"Fehler beim Laden der Audioquelle: {e}")
+
+    try:
+        source = discord.PCMVolumeTransformer(
+            discord.FFmpegPCMAudio(source_url, **FFMPEG_OPTIONS),
+            volume=0.5
+        )
+        voice_client.play(source)
+        await interaction.followup.send(f"🎶 Jetzt wird abgespielt: **{title}**")
+    except Exception as e:
+        await interaction.followup.send(f"Fehler beim Abspielen: {e}")
+
+
+@bot.tree.command(name="pause", description="Pausiert die aktuelle Wiedergabe.")
+async def pause_slash(interaction: discord.Interaction):
+    voice_client = interaction.guild.voice_client
+    if voice_client is None or not voice_client.is_playing():
+        return await interaction.response.send_message("Im Moment wird keine Musik abgespielt.", ephemeral=True)
+
+    voice_client.pause()
+    await interaction.response.send_message("Musik pausiert.")
+
+
+@bot.tree.command(name="resume", description="Setzt die pausierte Wiedergabe fort.")
+async def resume_slash(interaction: discord.Interaction):
+    voice_client = interaction.guild.voice_client
+    if voice_client is None or not voice_client.is_paused():
+        return await interaction.response.send_message("Es ist nichts pausiert.", ephemeral=True)
+
+    voice_client.resume()
+    await interaction.response.send_message("Musik fortgesetzt.")
+
+
+@bot.tree.command(name="stop", description="Stoppt die Wiedergabe und verlässt den Voice-Channel.")
+async def stop_slash(interaction: discord.Interaction):
+    voice_client = interaction.guild.voice_client
+    if voice_client is None or not voice_client.is_connected():
+        return await interaction.response.send_message("Ich bin in keinem Voice-Channel.", ephemeral=True)
+
+    voice_client.stop()
+    await voice_client.disconnect()
+    await interaction.response.send_message("Musik wurde gestoppt und ich habe den Voice-Channel verlassen.")
+
+
 bot.temp_channels = {}
 bot.ticket_channels = {}
 bot.reaction_roles = {}
