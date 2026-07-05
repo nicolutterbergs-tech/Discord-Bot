@@ -1683,10 +1683,13 @@ async def on_ready():
         bot.add_view(TicketCloseView())
         for guild in bot.guilds:
             try:
+                print(f"Syncing commands for guild {guild.id} ({guild.name})")
                 await bot.tree.sync(guild=guild)
             except Exception as e:
                 print(f"Fehler bei Guild-Sync {guild.id}: {e}")
-        print(f"Slash-Commands registriert: {len(bot.tree.get_commands())}")
+        command_names = [command.name for command in bot.tree.get_commands()]
+        print(f"Slash-Commands registriert ({len(command_names)}): {command_names}")
+        print(f"Bot ist in Guilds: {[guild.id for guild in bot.guilds]}")
     except Exception as e:
         print("Fehler beim Synchronisieren der Slash-Commands:", e)
 
