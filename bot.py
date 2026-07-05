@@ -255,6 +255,18 @@ async def vcdebug(interaction: discord.Interaction):
     await interaction.response.send_message(f"```\n{msg}\n```")
 
 
+@bot.tree.command(name="sync_commands", description="Synchronisiert die Slash-Commands neu.")
+async def sync_commands(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.manage_guild:
+        return await interaction.response.send_message("Nur Moderatoren können diesen Befehl nutzen.", ephemeral=True)
+
+    try:
+        await bot.tree.sync(guild=interaction.guild)
+        await interaction.response.send_message("Slash-Commands wurden neu synchronisiert.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"Fehler beim Synchronisieren: {e}", ephemeral=True)
+
+
 @bot.event
 async def on_command_error(ctx: commands.Context, error):
     if isinstance(error, commands.CommandNotFound):
@@ -1674,6 +1686,7 @@ async def on_ready():
                 await bot.tree.sync(guild=guild)
             except Exception as e:
                 print(f"Fehler bei Guild-Sync {guild.id}: {e}")
+        print(f"Slash-Commands registriert: {len(bot.tree.get_commands())}")
     except Exception as e:
         print("Fehler beim Synchronisieren der Slash-Commands:", e)
 
