@@ -57,6 +57,22 @@ intents.reactions = True
 
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
+
+def build_invite_url() -> str:
+    app_id = getattr(bot, "application_id", None)
+    if not app_id:
+        return "Bot-Anwendung noch nicht geladen."
+    return (
+        f"https://discord.com/oauth2/authorize?client_id={app_id}"
+        "&permissions=8&scope=bot%20applications.commands"
+    )
+
+
+@bot.command(name="invite")
+async def invite_command(ctx: commands.Context):
+    await ctx.send(build_invite_url())
+
+
 # =========================
 # MUSIC
 # =========================
@@ -1677,14 +1693,15 @@ async def on_ready():
     print("Bot ready - slash commands loaded")
 
     try:
-        await bot.tree.sync()
+        print(f"Invite URL: {build_invite_url()}")
+        await bot.tree.sync(delete_unknown=True)
         bot.add_view(TempVCOverlay())
         bot.add_view(TicketPanelView())
         bot.add_view(TicketCloseView())
         for guild in bot.guilds:
             try:
                 print(f"Syncing commands for guild {guild.id} ({guild.name})")
-                await bot.tree.sync(guild=guild)
+                await bot.tree.sync(guild=guild, delete_unknown=True)
             except Exception as e:
                 print(f"Fehler bei Guild-Sync {guild.id}: {e}")
         command_names = [command.name for command in bot.tree.get_commands()]
