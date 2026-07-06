@@ -1924,6 +1924,10 @@ def message_mention_spam(message: discord.Message) -> bool:
     return len(message.mentions) > MAX_MENTIONS
 
 
+def message_has_discord_invite(content: str) -> bool:
+    return bool(invite_regex.search(content))
+
+
 class AppealView(discord.ui.View):
     def __init__(self, guild_name: str, original_content: str):
         super().__init__(timeout=None)
@@ -2032,6 +2036,9 @@ async def evaluate_auto_mod(message: discord.Message):
     content = message.content or ""
     if not content.strip() and not message.attachments:
         return None
+
+    if message_has_discord_invite(content):
+        return "Discord Invite", 24 * 60
 
     if message_has_profanity(content):
         return "Beleidigung", 24 * 60
