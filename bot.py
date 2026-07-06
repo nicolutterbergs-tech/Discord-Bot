@@ -243,8 +243,12 @@ bot.ticket_channels = {}
 bot.reaction_roles = {}
 bot.active_temp_views = []
 bot.active_views = []
+bot.tempvoice_setups = {}
 
 TICKET_CATEGORY_NAME = "Support Tickets"
+TEMPVOICE_CATEGORY_NAME = "Temp Voice"
+TEMPVOICE_OVERLAY_CHANNEL_NAME = "tempvoice-overlay"
+TEMPVOICE_CREATOR_CHANNEL_NAME = "➕ Create Voice"
 TICKET_PANEL_CHANNEL_NAME = "🎫ticket"
 TICKET_CHANNEL_PREFIX = "ticket-"
 
@@ -460,6 +464,92 @@ async def update_alone_role(channel):
 
 def get_temp_channel_data(channel):
     return bot.temp_channels.get(channel.id) if channel else None
+
+
+def get_tempvoice_setup(guild):
+    return bot.tempvoice_setups.get(guild.id) if guild else None
+
+
+def get_tempvoice_creator_channel(guild):
+    setup = get_tempvoice_setup(guild)
+    if setup:
+        channel = guild.get_channel(setup.get("creator_channel_id")) if guild else None
+        if channel:
+            return channel
+    return guild.get_channel(CREATOR_CHANNEL_ID) if guild else None
+
+
+async def ensure_tempvoice_setup(guild, interaction=None):
+    setup = get_tempvoice_setup(guild) or {}
+
+    category = discord.utils.get(guild.categories, name=TEMPVOICE_CATEGORY_NAME)
+    if category is None:
+        category = await guild.create_category(TEMPVOICE_CATEGORY_NAME, reason="Temp Voice Setup")
+
+    creator_channel = None
+    if setup.get("creator_channel_id"):
+        creator_channel = guild.get_channel(setup["creator_channel_id"])
+    if creator_channel is None:
+        creator_channel = discord.utils.get(guild.voice_channels, name=TEMPVOICE_CREATOR_CHANNEL_NAME)
+    if creator_channel is None:
+        creator_channel = await guild.create_voice_channel(
+            name=TEMPVOICE_CREATOR_CHANNEL_NAME,
+            category=category,
+            overwrites={
+                guild.default_role: discord.PermissionOverwrite(view_channel=True, connect=True)
+            },
+            reason="Temp Voice Creator Channel erstellt"
+        )
+
+    overlay_channel = None
+    if setup.get("overlay_channel_id"):
+        overlay_channel = guild.get_channel(setup["overlay_channel_id"])
+    if overlay_channel is None:
+        overlay_channel = discord.utils.get(guild.text_channels, name=TEMPVOICE_OVERLAY_CHANNEL_NAME)
+    if overlay_channel is None:
+        overlay_channel = await guild.create_text_channel(
+            name=TEMPVOICE_OVERLAY_CHANNEL_NAME,
+            category=category,
+            overwrites={
+                guild.default_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
+            },
+            reason="Temp Voice Overlay Channel erstellt"
+        )
+
+    embed = discord.Embed(
+        title="🎛️ Temp Voice Steuerung",
+        description=(
+            "Klicke auf die Buttons, um deinen Temp Voice zu konfigurieren.\n"
+            "Trete in den Creator-Channel ein, um deinen eigenen Temp Voice zu erstellen."
+        ),
+        color=discord.Color.blurple()
+    )
+    embed.add_field(name="Schnell starten", value="Name / Limit / Region / Chat / Privacy", inline=False)
+    embed.add_field(name="Zugriff verwalten", value="Trust / Untrust / Invite / Block / Unblock", inline=False)
+    embed.add_field(name="Sonstiges", value="Kick / Claim / Transfer / Delete", inline=False)
+
+    view = TempVCOverlay()
+    bot.active_temp_views.append(view)
+    bot.add_view(view)
+
+    message = None
+    if setup.get("overlay_message_id"):
+        try:
+            message = await overlay_channel.fetch_message(setup["overlay_message_id"])
+            await message.edit(embed=embed, view=view)
+        except Exception:
+            message = None
+
+    if message is None:
+        message = await overlay_channel.send(embed=embed, view=view)
+
+    bot.tempvoice_setups[guild.id] = {
+        "creator_channel_id": creator_channel.id,
+        "overlay_channel_id": overlay_channel.id,
+        "overlay_message_id": message.id,
+    }
+
+    return creator_channel, overlay_channel, message
 
 
 def get_voice_temp_channel_member(member):
@@ -1609,30 +1699,23 @@ async def setupticket(interaction: discord.Interaction):
     )
 
 
-@bot.tree.command(name="setupvc", description="Erstellt das Temp-Voice-Overlay für den Server.")
+@bot.tree.command(name="setupvc", description="Erstellt das Temp-Voice-Overlay und den Creator-Channel für den Server.")
 async def setupvc(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
         return await interaction.response.send_message(
             "Nur Administratoren können das Setup ausführen.", ephemeral=True
         )
 
-    embed = discord.Embed(
-        title="🎛️ Temp Voice Steuerung",
-        description=(
-            "Klicke auf die Buttons, um deinen Temp Voice zu konfigurieren.\n"
-            "Alle können das Overlay nutzen, wenn sie sich in ihrem Temp Voice befinden."
-        ),
-        color=discord.Color.blurple()
-    )
-    embed.add_field(name="Schnell starten", value="Name / Limit / Region / Chat / Privacy", inline=False)
-    embed.add_field(name="Zugriff verwalten", value="Trust / Untrust / Invite / Block / Unblock", inline=False)
-    embed.add_field(name="Sonstiges", value="Kick / Claim / Transfer / Delete", inline=False)
-
-    view = TempVCOverlay()
-    bot.active_temp_views.append(view)
-    await interaction.response.send_message(
-        "Temp Voice Overlay wurde eingerichtet.", embed=embed, view=view
-    )
+    try:
+        creator_channel, overlay_channel, _ = await ensure_tempvoice_setup(interaction.guild)
+        await interaction.response.send_message(
+            f"Temp Voice Setup abgeschlossen. Overlay: {overlay_channel.mention} | Creator Channel: {creator_channel.mention}",
+            ephemeral=True
+        )
+    except Exception as e:
+        await interaction.response.send_message(
+            f"Fehler beim Einrichten: {e}", ephemeral=True
+        )
 
 
 @bot.tree.command(name="reactionrole", description="Erstellt eine Reaction Role Nachricht.")
@@ -2022,7 +2105,8 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
 @bot.event
 async def on_voice_state_update(member, before, after):
 
-    if after.channel and after.channel.id == CREATOR_CHANNEL_ID:
+    creator_channel = get_tempvoice_creator_channel(member.guild)
+    if after.channel and creator_channel and after.channel.id == creator_channel.id:
 
         guild = member.guild
         category = after.channel.category
