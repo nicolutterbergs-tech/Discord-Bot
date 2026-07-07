@@ -1,4 +1,5 @@
 import asyncio
+import sys
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -11,6 +12,12 @@ import traceback
 import io
 import json
 from dotenv import load_dotenv
+
+try:
+    import nacl  # noqa: F401
+except Exception as exc:
+    print(f"PyNaCl import failed: {exc}")
+    raise
 
 # =========================
 # KEEP ALIVE
