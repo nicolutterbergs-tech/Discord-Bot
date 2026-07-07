@@ -1785,6 +1785,12 @@ async def on_ready():
             try:
                 print(f"Syncing commands for guild {guild.id} ({guild.name})")
                 await bot.tree.sync(guild=guild, delete_unknown=True)
+                # Ensure Temp Voice setup is initialized for each guild
+                try:
+                    await ensure_tempvoice_setup(guild)
+                    print(f"Temp Voice Setup initialized for guild {guild.id}")
+                except Exception as e:
+                    print(f"Fehler beim Tempvoice-Setup für Guild {guild.id}: {e}")
             except Exception as e:
                 print(f"Fehler bei Guild-Sync {guild.id}: {e}")
         command_names = [command.name for command in bot.tree.get_commands()]
