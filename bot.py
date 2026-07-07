@@ -5,6 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 import re
 import os
+import shutil
 from datetime import timedelta
 from flask import Flask
 from threading import Thread
@@ -91,6 +92,34 @@ intents.voice_states = True
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
 
+def load_discord_opus() -> None:
+    try:
+        if discord.opus.is_loaded():
+            return
+
+        opus_dir = os.path.join(os.path.dirname(discord.opus.__file__), "bin")
+        candidates = [
+            os.path.join(opus_dir, "libopus-0.x64.dll"),
+            os.path.join(opus_dir, "libopus-0.x86.dll"),
+            os.path.join(opus_dir, "opus.dll"),
+        ]
+
+        for candidate in candidates:
+            if os.path.exists(candidate):
+                discord.opus.load_opus(candidate)
+                break
+        else:
+            discord.opus.load_opus("libopus-0.x64.dll")
+
+        if not discord.opus.is_loaded():
+            raise RuntimeError("Discord.py konnte die Opus-Bibliothek nicht laden.")
+    except Exception as exc:
+        print(f"⚠️ Opus-Ladung fehlgeschlagen: {exc}")
+
+
+load_discord_opus()
+
+
 def build_invite_url() -> str:
     app_id = getattr(bot, "application_id", None)
     if not app_id:
@@ -132,6 +161,26 @@ FFMPEG_OPTIONS = {
 }
 
 
+def resolve_ffmpeg_executable() -> str | None:
+    env_path = os.getenv("FFMPEG_PATH")
+    candidates = []
+    if env_path:
+        candidates.append(env_path)
+
+    candidates.extend([
+        shutil.which("ffmpeg"),
+        os.path.join(BASE_DIR, "ffmpeg.exe"),
+        os.path.join(BASE_DIR, "bin", "ffmpeg.exe"),
+        os.path.join(os.path.expanduser("~"), "ffmpeg", "bin", "ffmpeg.exe"),
+        r"C:\ffmpeg\bin\ffmpeg.exe",
+    ])
+
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return None
+
+
 def is_audio_url(query: str) -> bool:
     return query.startswith("http://") or query.startswith("https://")
 
@@ -152,6 +201,9 @@ def get_voice_error_message(exc: Exception) -> str:
 async def ensure_voice_channel_ready(channel: discord.VoiceChannel):
     if channel is None:
         raise RuntimeError("Kein Voice-Channel gefunden.")
+
+    if not discord.opus.is_loaded():
+        load_discord_opus()
 
     bot_member = channel.guild.me
     if bot_member is None:
@@ -222,6 +274,7 @@ async def join_slash(interaction: discord.Interaction):
         if voice_client is not None:
             await voice_client.move_to(channel)
         else:
+            load_discord_opus()
             await channel.connect()
     except Exception as e:
         print(f"Voice join failed: {type(e).__name__}: {e}")
@@ -254,6 +307,7 @@ async def play_slash(interaction: discord.Interaction, query: str):
     try:
         channel = await ensure_voice_channel_ready(channel)
         if voice_client is None:
+            load_discord_opus()
             voice_client = await channel.connect()
         elif voice_client.channel != channel:
             await voice_client.move_to(channel)
@@ -267,8 +321,12 @@ async def play_slash(interaction: discord.Interaction, query: str):
         return await interaction.followup.send(f"Fehler beim Laden der Audioquelle: {get_voice_error_message(e)}", ephemeral=True)
 
     try:
+        ffmpeg_path = resolve_ffmpeg_executable()
+        if not ffmpeg_path:
+            raise RuntimeError("FFmpeg ist nicht verfügbar. Bitte installiere FFmpeg und stelle es im Pfad bereit.")
+
         source = discord.PCMVolumeTransformer(
-            discord.FFmpegPCMAudio(source_url, **FFMPEG_OPTIONS),
+            discord.FFmpegPCMAudio(source_url, executable=ffmpeg_path, **FFMPEG_OPTIONS),
             volume=0.5
         )
         voice_client.play(source)
