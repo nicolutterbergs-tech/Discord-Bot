@@ -299,7 +299,10 @@ async def play_slash(interaction: discord.Interaction, query: str):
     if interaction.user.voice is None or interaction.user.voice.channel is None:
         return await interaction.response.send_message("Du musst zuerst in einem Voice-Channel sein.", ephemeral=True)
 
-    await interaction.response.defer(ephemeral=True)
+    try:
+        await interaction.response.defer(ephemeral=True)
+    except discord.errors.NotFound:
+        return
 
     channel = interaction.user.voice.channel
     voice_client = interaction.guild.voice_client
@@ -318,7 +321,11 @@ async def play_slash(interaction: discord.Interaction, query: str):
         source_url, title = await get_audio_source(query)
     except Exception as e:
         print(f"Play voice setup failed: {type(e).__name__}: {e}")
-        return await interaction.followup.send(f"Fehler beim Laden der Audioquelle: {get_voice_error_message(e)}", ephemeral=True)
+        try:
+            await interaction.followup.send(f"Fehler beim Laden der Audioquelle: {get_voice_error_message(e)}", ephemeral=True)
+        except discord.errors.NotFound:
+            pass
+        return
 
     try:
         ffmpeg_path = resolve_ffmpeg_executable()
@@ -330,9 +337,15 @@ async def play_slash(interaction: discord.Interaction, query: str):
             volume=0.5
         )
         voice_client.play(source)
-        await interaction.followup.send(f"🎶 Jetzt wird abgespielt: **{title}**", ephemeral=True)
+        try:
+            await interaction.followup.send(f"🎶 Jetzt wird abgespielt: **{title}**", ephemeral=True)
+        except discord.errors.NotFound:
+            pass
     except Exception as e:
-        await interaction.followup.send(f"Fehler beim Abspielen: {get_voice_error_message(e)}", ephemeral=True)
+        try:
+            await interaction.followup.send(f"Fehler beim Abspielen: {get_voice_error_message(e)}", ephemeral=True)
+        except discord.errors.NotFound:
+            pass
 
 
 @bot.tree.command(name="pause", description="Pausiert die aktuelle Wiedergabe.")
