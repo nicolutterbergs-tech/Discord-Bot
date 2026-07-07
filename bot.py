@@ -141,9 +141,28 @@ def get_voice_error_message(exc: Exception) -> str:
         return "Die Sprachunterstützung ist nicht verfügbar. Bitte installiere PyNaCl über pip."
     if "ffmpeg" in message or "avcodec" in message or "ffprobe" in message:
         return "FFmpeg ist auf dem Server nicht verfügbar. Bitte installiere FFmpeg und stelle es im Pfad bereit."
+    if "permission" in message or "permissions" in message:
+        return "Der Bot hat keine ausreichenden Rechte für den Voice-Channel. Bitte prüfe die Berechtigungen."
     if "not connected" in message or "voice" in message:
         return "Der Bot konnte keine Sprachverbindung aufbauen. Bitte prüfe den Voice-Channel und die Bot-Rechte."
     return str(exc)
+
+
+async def ensure_voice_channel_ready(channel: discord.VoiceChannel):
+    if channel is None:
+        raise RuntimeError("Kein Voice-Channel gefunden.")
+
+    bot_member = channel.guild.me
+    if bot_member is None:
+        raise RuntimeError("Bot-Mitglied konnte nicht ermittelt werden.")
+
+    permissions = channel.permissions_for(bot_member)
+    if not permissions.connect:
+        raise RuntimeError("Der Bot darf den Voice-Channel nicht betreten.")
+    if not permissions.speak:
+        raise RuntimeError("Der Bot darf im Voice-Channel nicht sprechen.")
+
+    return channel
 
 
 async def create_ytdl_source(search: str):
@@ -228,6 +247,7 @@ async def play_slash(interaction: discord.Interaction, query: str):
     voice_client = interaction.guild.voice_client
 
     try:
+        channel = await ensure_voice_channel_ready(channel)
         if voice_client is None:
             voice_client = await channel.connect()
         elif voice_client.channel != channel:
