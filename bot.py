@@ -86,6 +86,7 @@ intents.message_content = True
 intents.guilds = True
 intents.members = True
 intents.reactions = True
+intents.voice_states = True
 
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
@@ -215,12 +216,16 @@ async def join_slash(interaction: discord.Interaction):
     if interaction.user.voice is None or interaction.user.voice.channel is None:
         return await interaction.response.send_message("Du musst zuerst in einem Voice-Channel sein.", ephemeral=True)
 
-    channel = interaction.user.voice.channel
-    voice_client = interaction.guild.voice_client
-    if voice_client is not None:
-        await voice_client.move_to(channel)
-    else:
-        await channel.connect()
+    try:
+        channel = await ensure_voice_channel_ready(interaction.user.voice.channel)
+        voice_client = interaction.guild.voice_client
+        if voice_client is not None:
+            await voice_client.move_to(channel)
+        else:
+            await channel.connect()
+    except Exception as e:
+        print(f"Voice join failed: {type(e).__name__}: {e}")
+        return await interaction.response.send_message(f"Fehler beim Verbinden mit dem Voice-Channel: {get_voice_error_message(e)}", ephemeral=True)
 
     await interaction.response.send_message(f"Ich bin dem Kanal {channel.mention} beigetreten.")
 
@@ -258,6 +263,7 @@ async def play_slash(interaction: discord.Interaction, query: str):
 
         source_url, title = await get_audio_source(query)
     except Exception as e:
+        print(f"Play voice setup failed: {type(e).__name__}: {e}")
         return await interaction.followup.send(f"Fehler beim Laden der Audioquelle: {get_voice_error_message(e)}", ephemeral=True)
 
     try:
