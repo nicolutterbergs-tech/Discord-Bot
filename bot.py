@@ -1821,14 +1821,14 @@ async def on_ready():
 
     try:
         print(f"Invite URL: {build_invite_url()}")
-        await bot.tree.sync(delete_unknown=True)
+        await bot.tree.sync()
         bot.add_view(TempVCOverlay())
         bot.add_view(TicketPanelView())
         bot.add_view(TicketCloseView())
         for guild in bot.guilds:
             try:
                 print(f"Syncing commands for guild {guild.id} ({guild.name})")
-                await bot.tree.sync(guild=guild, delete_unknown=True)
+                await bot.tree.sync(guild=guild)
                 # Ensure Temp Voice setup is initialized for each guild
                 try:
                     await ensure_tempvoice_setup(guild)
