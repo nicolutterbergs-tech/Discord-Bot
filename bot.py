@@ -79,6 +79,7 @@ intents.message_content = True
 intents.guilds = True
 intents.members = True
 intents.reactions = True
+intents.voice_states = True
 
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
@@ -126,6 +127,17 @@ FFMPEG_OPTIONS = {
 
 def is_audio_url(query: str) -> bool:
     return query.startswith("http://") or query.startswith("https://")
+
+
+def get_voice_error_message(exc: Exception) -> str:
+    message = str(exc).lower()
+    if "pynacl" in message or "nacl" in message:
+        return "Die Sprachunterstützung ist nicht verfügbar. Bitte installiere PyNaCl über pip."
+    if "ffmpeg" in message or "avcodec" in message or "ffprobe" in message:
+        return "FFmpeg ist auf dem Server nicht verfügbar. Bitte installiere FFmpeg und stelle es im Pfad bereit."
+    if "not connected" in message or "voice" in message:
+        return "Der Bot konnte keine Sprachverbindung aufbauen. Bitte prüfe den Voice-Channel und die Bot-Rechte."
+    return str(exc)
 
 
 async def create_ytdl_source(search: str):
@@ -221,7 +233,7 @@ async def play_slash(interaction: discord.Interaction, query: str):
 
         source_url, title = await get_audio_source(query)
     except Exception as e:
-        return await interaction.followup.send(f"Fehler beim Laden der Audioquelle: {e}")
+        return await interaction.followup.send(f"Fehler beim Laden der Audioquelle: {get_voice_error_message(e)}")
 
     try:
         source = discord.PCMVolumeTransformer(
@@ -231,7 +243,7 @@ async def play_slash(interaction: discord.Interaction, query: str):
         voice_client.play(source)
         await interaction.followup.send(f"🎶 Jetzt wird abgespielt: **{title}**")
     except Exception as e:
-        await interaction.followup.send(f"Fehler beim Abspielen: {e}")
+        await interaction.followup.send(f"Fehler beim Abspielen: {get_voice_error_message(e)}")
 
 
 @bot.tree.command(name="pause", description="Pausiert die aktuelle Wiedergabe.")
@@ -499,11 +511,16 @@ def get_tempvoice_setup(guild):
 
 def get_tempvoice_creator_channel(guild):
     setup = get_tempvoice_setup(guild)
+    print(f"[Creator Channel] Guild: {guild.id}, Setup exists: {setup is not None}")
     if setup:
-        channel = guild.get_channel(setup.get("creator_channel_id")) if guild else None
+        creator_id = setup.get("creator_channel_id")
+        channel = guild.get_channel(creator_id) if guild else None
+        print(f"[Creator Channel] From setup: creator_id={creator_id}, channel={channel}")
         if channel:
             return channel
-    return guild.get_channel(CREATOR_CHANNEL_ID) if guild else None
+    fallback = guild.get_channel(CREATOR_CHANNEL_ID) if guild else None
+    print(f"[Creator Channel] Fallback (hardcoded ID {CREATOR_CHANNEL_ID}): {fallback}")
+    return fallback
 
 
 async def ensure_tempvoice_setup(guild, interaction=None):
@@ -2146,6 +2163,11 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
 async def on_voice_state_update(member, before, after):
 
     creator_channel = get_tempvoice_creator_channel(member.guild)
+    print(f"[Voice Update] {member} - before={before.channel} after={after.channel}")
+    print(f"[Creator Check] creator_channel={creator_channel} (id={creator_channel.id if creator_channel else 'None'})")
+    if after.channel:
+        print(f"[Channel Check] after.channel.id={after.channel.id}, creator_channel.id={creator_channel.id if creator_channel else 'None'}, match={after.channel.id == creator_channel.id if creator_channel else False}")
+    
     if after.channel and creator_channel and after.channel.id == creator_channel.id:
 
         guild = member.guild
