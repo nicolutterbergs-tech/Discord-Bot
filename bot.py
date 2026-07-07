@@ -222,8 +222,7 @@ async def play_slash(interaction: discord.Interaction, query: str):
     if interaction.user.voice is None or interaction.user.voice.channel is None:
         return await interaction.response.send_message("Du musst zuerst in einem Voice-Channel sein.", ephemeral=True)
 
-    if not interaction.response.is_done():
-        await interaction.response.defer()
+    await interaction.response.defer(ephemeral=True)
 
     channel = interaction.user.voice.channel
     voice_client = interaction.guild.voice_client
@@ -239,7 +238,7 @@ async def play_slash(interaction: discord.Interaction, query: str):
 
         source_url, title = await get_audio_source(query)
     except Exception as e:
-        return await interaction.followup.send(f"Fehler beim Laden der Audioquelle: {get_voice_error_message(e)}")
+        return await interaction.followup.send(f"Fehler beim Laden der Audioquelle: {get_voice_error_message(e)}", ephemeral=True)
 
     try:
         source = discord.PCMVolumeTransformer(
@@ -247,9 +246,9 @@ async def play_slash(interaction: discord.Interaction, query: str):
             volume=0.5
         )
         voice_client.play(source)
-        await interaction.followup.send(f"🎶 Jetzt wird abgespielt: **{title}**")
+        await interaction.followup.send(f"🎶 Jetzt wird abgespielt: **{title}**", ephemeral=True)
     except Exception as e:
-        await interaction.followup.send(f"Fehler beim Abspielen: {get_voice_error_message(e)}")
+        await interaction.followup.send(f"Fehler beim Abspielen: {get_voice_error_message(e)}", ephemeral=True)
 
 
 @bot.tree.command(name="pause", description="Pausiert die aktuelle Wiedergabe.")
