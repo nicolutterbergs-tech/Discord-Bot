@@ -15,7 +15,7 @@ import json
 from dotenv import load_dotenv
 
 try:
-    #import nacl  # noqa: F401
+    import nacl  # noqa: F401
 except Exception as exc:
     print(f"PyNaCl import failed: {exc}")
     raise
