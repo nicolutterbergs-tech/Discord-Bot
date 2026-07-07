@@ -10,6 +10,7 @@ from threading import Thread
 import traceback
 import io
 import json
+from dotenv import load_dotenv
 
 # =========================
 # KEEP ALIVE
@@ -30,7 +31,31 @@ def keep_alive():
 # =========================
 # TOKEN
 # =========================
-TOKEN = os.getenv("TOKEN")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+
+
+def load_token() -> str | None:
+    token = os.getenv("TOKEN")
+    if token:
+        return token
+
+    config_path = os.path.join(BASE_DIR, "config.json")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            if isinstance(data, dict):
+                token = data.get("token")
+                if token:
+                    return token
+        except Exception as exc:
+            print(f"⚠️ Fehler beim Lesen von config.json: {exc}")
+
+    return None
+
+
+TOKEN = load_token()
 
 if not TOKEN:
     print("❌ TOKEN fehlt!")
