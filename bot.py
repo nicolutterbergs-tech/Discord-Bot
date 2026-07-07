@@ -179,19 +179,21 @@ async def play_slash(interaction: discord.Interaction, query: str):
     if interaction.user.voice is None or interaction.user.voice.channel is None:
         return await interaction.response.send_message("Du musst zuerst in einem Voice-Channel sein.", ephemeral=True)
 
+    if not interaction.response.is_done():
+        await interaction.response.defer()
+
     channel = interaction.user.voice.channel
     voice_client = interaction.guild.voice_client
 
-    if voice_client is None:
-        voice_client = await channel.connect()
-    elif voice_client.channel != channel:
-        await voice_client.move_to(channel)
-
-    if voice_client.is_playing():
-        voice_client.stop()
-
-    await interaction.response.defer()
     try:
+        if voice_client is None:
+            voice_client = await channel.connect()
+        elif voice_client.channel != channel:
+            await voice_client.move_to(channel)
+
+        if voice_client.is_playing():
+            voice_client.stop()
+
         source_url, title = await get_audio_source(query)
     except Exception as e:
         return await interaction.followup.send(f"Fehler beim Laden der Audioquelle: {e}")
