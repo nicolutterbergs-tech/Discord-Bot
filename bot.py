@@ -79,7 +79,6 @@ intents.message_content = True
 intents.guilds = True
 intents.members = True
 intents.reactions = True
-intents.voice_states = True
 
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
@@ -511,16 +510,11 @@ def get_tempvoice_setup(guild):
 
 def get_tempvoice_creator_channel(guild):
     setup = get_tempvoice_setup(guild)
-    print(f"[Creator Channel] Guild: {guild.id}, Setup exists: {setup is not None}")
     if setup:
-        creator_id = setup.get("creator_channel_id")
-        channel = guild.get_channel(creator_id) if guild else None
-        print(f"[Creator Channel] From setup: creator_id={creator_id}, channel={channel}")
+        channel = guild.get_channel(setup.get("creator_channel_id")) if guild else None
         if channel:
             return channel
-    fallback = guild.get_channel(CREATOR_CHANNEL_ID) if guild else None
-    print(f"[Creator Channel] Fallback (hardcoded ID {CREATOR_CHANNEL_ID}): {fallback}")
-    return fallback
+    return guild.get_channel(CREATOR_CHANNEL_ID) if guild else None
 
 
 async def ensure_tempvoice_setup(guild, interaction=None):
@@ -2163,11 +2157,6 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
 async def on_voice_state_update(member, before, after):
 
     creator_channel = get_tempvoice_creator_channel(member.guild)
-    print(f"[Voice Update] {member} - before={before.channel} after={after.channel}")
-    print(f"[Creator Check] creator_channel={creator_channel} (id={creator_channel.id if creator_channel else 'None'})")
-    if after.channel:
-        print(f"[Channel Check] after.channel.id={after.channel.id}, creator_channel.id={creator_channel.id if creator_channel else 'None'}, match={after.channel.id == creator_channel.id if creator_channel else False}")
-    
     if after.channel and creator_channel and after.channel.id == creator_channel.id:
 
         guild = member.guild
