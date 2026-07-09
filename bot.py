@@ -15,6 +15,8 @@ import json
 from dotenv import load_dotenv
 import platform
 import discord
+ import traceback
+
 
 
 try:
@@ -320,6 +322,9 @@ async def play_slash(interaction: discord.Interaction, query: str):
         channel = await ensure_voice_channel_ready(channel)
         if voice_client is None:
             load_discord_opus()
+            print("Vor connect()")
+            voice_client = await channel.connect()
+            print("Nach connect()", voice_client)
             voice_client = await channel.connect()
         elif voice_client.channel != channel:
             await voice_client.move_to(channel)
@@ -328,13 +333,11 @@ async def play_slash(interaction: discord.Interaction, query: str):
             voice_client.stop()
 
         source_url, title = await get_audio_source(query)
-    except Exception as e:
-        print(f"Play voice setup failed: {type(e).__name__}: {e}")
-        try:
-            await interaction.followup.send(f"Fehler beim Laden der Audioquelle: {get_voice_error_message(e)}", ephemeral=True)
-        except discord.errors.NotFound:
-            pass
-        return
+   
+        except Exception as e:
+            print("JOIN FEHLER!")
+            traceback.print_exc()
+            print(repr(e))
 
     try:
         ffmpeg_path = resolve_ffmpeg_executable()
