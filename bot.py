@@ -320,12 +320,12 @@ async def play_slash(interaction: discord.Interaction, query: str):
 
     try:
         channel = await ensure_voice_channel_ready(channel)
+
         if voice_client is None:
             load_discord_opus()
             print("Vor connect()")
             voice_client = await channel.connect()
             print("Nach connect()", voice_client)
-            voice_client = await channel.connect()
         elif voice_client.channel != channel:
             await voice_client.move_to(channel)
 
@@ -333,11 +333,12 @@ async def play_slash(interaction: discord.Interaction, query: str):
             voice_client.stop()
 
         source_url, title = await get_audio_source(query)
-   
-        except Exception as e:
-            print("JOIN FEHLER!")
-            traceback.print_exc()
-            print(repr(e))
+
+    except Exception as e:
+        print("JOIN FEHLER!")
+        import traceback
+        traceback.print_exc()
+        print(repr(e))
 
     try:
         ffmpeg_path = resolve_ffmpeg_executable()
