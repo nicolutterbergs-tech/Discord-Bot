@@ -324,8 +324,9 @@ async def play_slash(interaction: discord.Interaction, query: str):
         if voice_client is None:
             load_discord_opus()
             print("Vor connect()")
-            voice_client = await channel.connect()
+            voice_client = await channel.connect(timeout=20, reconnect=True)
             print("Nach connect()", voice_client)
+
         elif voice_client.channel != channel:
             await voice_client.move_to(channel)
 
@@ -335,31 +336,51 @@ async def play_slash(interaction: discord.Interaction, query: str):
         source_url, title = await get_audio_source(query)
 
     except Exception as e:
-        print("JOIN FEHLER!")
         import traceback
+
+        print("========== PLAY ERROR ==========")
         traceback.print_exc()
         print(repr(e))
+        print("================================")
+
+        await interaction.followup.send(
+            f"❌ Fehler beim Laden der Audioquelle:\n```{type(e).__name__}: {e}```",
+            ephemeral=True
+        )
+        return
+
 
     try:
         ffmpeg_path = resolve_ffmpeg_executable()
         if not ffmpeg_path:
-            raise RuntimeError("FFmpeg ist nicht verfügbar. Bitte installiere FFmpeg und stelle es im Pfad bereit.")
+            raise RuntimeError(
+                "FFmpeg ist nicht verfügbar. Bitte installiere FFmpeg und stelle es im Pfad bereit."
+            )
 
         source = discord.PCMVolumeTransformer(
-            discord.FFmpegPCMAudio(source_url, executable=ffmpeg_path, **FFMPEG_OPTIONS),
+            discord.FFmpegPCMAudio(
+                source_url,
+                executable=ffmpeg_path,
+                **FFMPEG_OPTIONS
+            ),
             volume=0.5
         )
-        voice_client.play(source)
-        try:
-            await interaction.followup.send(f"🎶 Jetzt wird abgespielt: **{title}**", ephemeral=True)
-        except discord.errors.NotFound:
-            pass
-    except Exception as e:
-        try:
-            await interaction.followup.send(f"Fehler beim Abspielen: {get_voice_error_message(e)}", ephemeral=True)
-        except discord.errors.NotFound:
-            pass
 
+        voice_client.play(source)
+
+    except Exception as e:
+        import traceback
+
+        print("========== FFMPEG ERROR ==========")
+        traceback.print_exc()
+        print(repr(e))
+        print("=================================")
+
+        await interaction.followup.send(
+            f"❌ Fehler beim Abspielen:\n```{type(e).__name__}: {e}```",
+            ephemeral=True
+        )
+        return
 
 @bot.tree.command(name="pause", description="Pausiert die aktuelle Wiedergabe.")
 async def pause_slash(interaction: discord.Interaction):
