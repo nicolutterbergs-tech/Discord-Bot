@@ -13,6 +13,9 @@ import traceback
 import io
 import json
 from dotenv import load_dotenv
+import platform
+import discord
+
 
 try:
     import nacl  # noqa: F401
@@ -94,25 +97,18 @@ bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
 def load_discord_opus() -> None:
     try:
-        if discord.opus.is_loaded():
-            return
-
-        opus_dir = os.path.join(os.path.dirname(discord.opus.__file__), "bin")
-        candidates = [
-            os.path.join(opus_dir, "libopus-0.x64.dll"),
-            os.path.join(opus_dir, "libopus-0.x86.dll"),
-            os.path.join(opus_dir, "opus.dll"),
-        ]
-
-        for candidate in candidates:
-            if os.path.exists(candidate):
-                discord.opus.load_opus(candidate)
-                break
-        else:
-            discord.opus.load_opus("libopus-0.x64.dll")
-
         if not discord.opus.is_loaded():
-            raise RuntimeError("Discord.py konnte die Opus-Bibliothek nicht laden.")
+            if platform.system() == "Windows":
+                discord.opus.load_opus("libopus-0.x64.dll")
+            else:
+                # Linux
+                discord.opus.load_opus("libopus.so.0")
+
+        if discord.opus.is_loaded():
+            print("✅ Opus erfolgreich geladen.")
+        else:
+            print("❌ Opus konnte nicht geladen werden.")
+
     except Exception as exc:
         print(f"⚠️ Opus-Ladung fehlgeschlagen: {exc}")
 
