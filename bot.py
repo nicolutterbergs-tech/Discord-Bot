@@ -136,6 +136,7 @@ async def invite_command(ctx: commands.Context):
 # =========================
 # MUSIC
 # =========================
+
 try:
     import yt_dlp as youtube_dl
 except ImportError:
@@ -144,14 +145,17 @@ except ImportError:
     except ImportError:
         youtube_dl = None
 
+
 YTDL_OPTIONS = {
     "format": "bestaudio/best",
     "quiet": True,
-    "default_search": "auto",
+    "default_search": "ytsearch1",
+    "noplaylist": True,
     "source_address": "0.0.0.0",
     "nocheckcertificate": True,
     "ignoreerrors": True,
 }
+
 
 FFMPEG_OPTIONS = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
@@ -162,6 +166,7 @@ FFMPEG_OPTIONS = {
 def resolve_ffmpeg_executable() -> str | None:
     env_path = os.getenv("FFMPEG_PATH")
     candidates = []
+
     if env_path:
         candidates.append(env_path)
 
@@ -176,6 +181,7 @@ def resolve_ffmpeg_executable() -> str | None:
     for candidate in candidates:
         if candidate and os.path.exists(candidate):
             return candidate
+
     return None
 
 
@@ -185,18 +191,21 @@ def is_audio_url(query: str) -> bool:
 
 def get_voice_error_message(exc: Exception) -> str:
     message = str(exc).lower()
+
     if "pynacl" in message or "nacl" in message:
-        return "Die Sprachunterstützung ist nicht verfügbar. Bitte installiere PyNaCl über pip."
-    if "ffmpeg" in message or "avcodec" in message or "ffprobe" in message:
-        return "FFmpeg ist auf dem Server nicht verfügbar. Bitte installiere FFmpeg und stelle es im Pfad bereit."
-    if "permission" in message or "permissions" in message:
-        return "Der Bot hat keine ausreichenden Rechte für den Voice-Channel. Bitte prüfe die Berechtigungen."
-    if "not connected" in message or "voice" in message:
-        return "Der Bot konnte keine Sprachverbindung aufbauen. Bitte prüfe den Voice-Channel und die Bot-Rechte."
+        return "Die Sprachunterstützung ist nicht verfügbar. Bitte installiere PyNaCl."
+
+    if "ffmpeg" in message or "avcodec" in message:
+        return "FFmpeg ist nicht verfügbar."
+
+    if "permission" in message:
+        return "Der Bot hat keine Rechte für den Voice-Channel."
+
     return str(exc)
 
 
 async def ensure_voice_channel_ready(channel: discord.VoiceChannel):
+
     if channel is None:
         raise RuntimeError("Kein Voice-Channel gefunden.")
 
@@ -204,151 +213,125 @@ async def ensure_voice_channel_ready(channel: discord.VoiceChannel):
         load_discord_opus()
 
     bot_member = channel.guild.me
+
     if bot_member is None:
-        raise RuntimeError("Bot-Mitglied konnte nicht ermittelt werden.")
+        raise RuntimeError("Bot-Mitglied konnte nicht gefunden werden.")
 
     permissions = channel.permissions_for(bot_member)
+
     if not permissions.connect:
-        raise RuntimeError("Der Bot darf den Voice-Channel nicht betreten.")
+        raise RuntimeError(
+            "Der Bot darf den Voice-Channel nicht betreten."
+        )
+
     if not permissions.speak:
-        raise RuntimeError("Der Bot darf im Voice-Channel nicht sprechen.")
+        raise RuntimeError(
+            "Der Bot darf im Voice-Channel nicht sprechen."
+        )
 
     return channel
 
 
+
 async def create_ytdl_source(search: str):
+
     if youtube_dl is None:
         raise RuntimeError(
-            "Musikwiedergabe von YouTube erfordert die Installation von yt_dlp oder youtube_dl."
+            "Musikwiedergabe benötigt yt_dlp oder youtube_dl."
         )
+
 
     loop = asyncio.get_running_loop()
 
-    def extract():
-        return youtube_dl.YoutubeDL(YTDL_OPTIONS).extract_info(search, download=False)
 
-    data = await loop.run_in_executor(None, extract)
+    # Nur bei Suchbegriffen suchen
+    # URLs werden direkt verarbeitet
+    if not is_audio_url(search):
+        search = f"ytsearch1:{search}"
+
+
+    def extract():
+
+        return youtube_dl.YoutubeDL(
+            YTDL_OPTIONS
+        ).extract_info(
+            search,
+            download=False
+        )
+
+
+    data = await loop.run_in_executor(
+        None,
+        extract
+    )
+
+
     if data is None:
-        raise RuntimeError("Keine Audioquelle gefunden.")
+        raise RuntimeError(
+            "Keine Audioquelle gefunden."
+        )
+
 
     if "entries" in data:
-        data = next((entry for entry in data["entries"] if entry), None)
+
+        data = next(
+            (
+                entry
+                for entry in data["entries"]
+                if entry
+            ),
+            None
+        )
+
+
         if data is None:
-            raise RuntimeError("Keine Audioquelle gefunden.")
+            raise RuntimeError(
+                "Keine Treffer gefunden."
+            )
+
 
     url = data.get("url")
     title = data.get("title") or search
+
+
     if url is None:
-        raise RuntimeError("Konnte die Audio-URL nicht extrahieren.")
+        raise RuntimeError(
+            "Konnte die Audio-URL nicht extrahieren."
+        )
+
 
     return url, title
 
 
+
 async def get_audio_source(search: str):
+
     if is_audio_url(search):
+
         if youtube_dl is not None:
+
             try:
                 return await create_ytdl_source(search)
+
             except Exception:
-                return search, os.path.basename(search)
-        return search, os.path.basename(search)
+                return (
+                    search,
+                    os.path.basename(search)
+                )
+
+        return (
+            search,
+            os.path.basename(search)
+        )
+
 
     if youtube_dl is not None:
         return await create_ytdl_source(search)
 
+
     raise RuntimeError(
-        "Für die Musiksuche benötigst du yt_dlp oder youtube_dl. Alternativ nutze einen direkten MP3/OGG-Link."
+        "Für die Musiksuche benötigst du yt_dlp."
     )
-
-
-@bot.tree.command(name="join", description="Bringt mich in deinen Voice-Channel.")
-async def join_slash(interaction: discord.Interaction):
-    if interaction.user.voice is None or interaction.user.voice.channel is None:
-        return await interaction.response.send_message(
-            "Du musst zuerst in einem Voice-Channel sein.",
-            ephemeral=True
-        )
-
-    try:
-        channel = await ensure_voice_channel_ready(interaction.user.voice.channel)
-
-        voice_client = interaction.guild.voice_client
-
-        if voice_client:
-            await voice_client.move_to(channel)
-        else:
-            load_discord_opus()
-            voice_client = await channel.connect(timeout=20, reconnect=True)
-
-        await interaction.response.send_message(
-            f"Ich bin dem Kanal {channel.mention} beigetreten."
-        )
-
-    except Exception:
-        import traceback
-        traceback.print_exc()
-
-        await interaction.response.send_message(
-            "❌ Ich konnte dem Voice-Channel nicht beitreten.",
-            ephemeral=True
-        )
-
-
-@bot.tree.command(name="leave", description="Lässt mich den Voice-Channel verlassen.")
-async def leave_slash(interaction: discord.Interaction):
-    voice_client = interaction.guild.voice_client
-    if voice_client is None:
-        return await interaction.response.send_message("Ich bin in keinem Voice-Channel.", ephemeral=True)
-
-    await voice_client.disconnect()
-    await interaction.response.send_message("Ich habe den Voice-Channel verlassen.")
-
-
-@bot.tree.command(name="play", description="Spielt Musik von YouTube oder einer URL ab.")
-@app_commands.describe(query="YouTube-URL oder Suchbegriff")
-async def play_slash(interaction: discord.Interaction, query: str):
-    if interaction.user.voice is None or interaction.user.voice.channel is None:
-        return await interaction.response.send_message("Du musst zuerst in einem Voice-Channel sein.", ephemeral=True)
-
-    try:
-        await interaction.response.defer(ephemeral=True)
-    except discord.errors.NotFound:
-        return
-
-    channel = interaction.user.voice.channel
-    voice_client = interaction.guild.voice_client
-
-    try:
-        channel = await ensure_voice_channel_ready(channel)
-
-        if voice_client is None:
-            load_discord_opus()
-            print("Vor connect()")
-            voice_client = await channel.connect(timeout=20, reconnect=True)
-            print("Nach connect()", voice_client)
-
-        elif voice_client.channel != channel:
-            await voice_client.move_to(channel)
-
-        if voice_client.is_playing():
-            voice_client.stop()
-
-        source_url, title = await get_audio_source(query)
-
-    except Exception as e:
-        import traceback
-
-        print("========== PLAY ERROR ==========")
-        traceback.print_exc()
-        print(repr(e))
-        print("================================")
-
-        await interaction.followup.send(
-            f"❌ Fehler beim Laden der Audioquelle:\n```{type(e).__name__}: {e}```",
-            ephemeral=True
-        )
-        return
-
 
     try:
         ffmpeg_path = resolve_ffmpeg_executable()
