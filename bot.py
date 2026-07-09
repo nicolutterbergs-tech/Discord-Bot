@@ -262,21 +262,34 @@ async def get_audio_source(search: str):
 @bot.tree.command(name="join", description="Bringt mich in deinen Voice-Channel.")
 async def join_slash(interaction: discord.Interaction):
     if interaction.user.voice is None or interaction.user.voice.channel is None:
-        return await interaction.response.send_message("Du musst zuerst in einem Voice-Channel sein.", ephemeral=True)
+        return await interaction.response.send_message(
+            "Du musst zuerst in einem Voice-Channel sein.",
+            ephemeral=True
+        )
 
     try:
         channel = await ensure_voice_channel_ready(interaction.user.voice.channel)
+
         voice_client = interaction.guild.voice_client
-        if voice_client is not None:
+
+        if voice_client:
             await voice_client.move_to(channel)
         else:
             load_discord_opus()
-            await channel.connect()
-    except Exception as e:
+            voice_client = await channel.connect(timeout=20, reconnect=True)
+
+        await interaction.response.send_message(
+            f"Ich bin dem Kanal {channel.mention} beigetreten."
+        )
+
+    except Exception:
         import traceback
         traceback.print_exc()
-        print(repr(e))
-        await interaction.response.send_message(f"Ich bin dem Kanal {channel.mention} beigetreten.")
+
+        await interaction.response.send_message(
+            "❌ Ich konnte dem Voice-Channel nicht beitreten.",
+            ephemeral=True
+        )
 
 
 @bot.tree.command(name="leave", description="Lässt mich den Voice-Channel verlassen.")
