@@ -277,10 +277,10 @@ async def join_slash(interaction: discord.Interaction):
             load_discord_opus()
             await channel.connect()
     except Exception as e:
-        print(f"Voice join failed: {type(e).__name__}: {e}")
-        return await interaction.response.send_message(f"Fehler beim Verbinden mit dem Voice-Channel: {get_voice_error_message(e)}", ephemeral=True)
-
-    await interaction.response.send_message(f"Ich bin dem Kanal {channel.mention} beigetreten.")
+        import traceback
+        traceback.print_exc()
+        print(repr(e))
+        await interaction.response.send_message(f"Ich bin dem Kanal {channel.mention} beigetreten.")
 
 
 @bot.tree.command(name="leave", description="Lässt mich den Voice-Channel verlassen.")
