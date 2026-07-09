@@ -15,7 +15,7 @@ import json
 from dotenv import load_dotenv
 import platform
 import discord
- import traceback
+import traceback
 
 
 
