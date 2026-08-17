@@ -122,7 +122,62 @@ def write_config(data: dict) -> None:
 
 
 async def generate_survey() -> str:
-    # Simple, deterministic topic rotation by date. Replace with a smarter generator if desired.
+    # Try to generate survey text via OpenAI if an API key is present.
+    cfg = read_config()
+    api_key = os.getenv("OPENAI_API_KEY") or cfg.get("openai_api_key")
+
+    if api_key:
+        system_msg = {
+            "role": "system",
+            "content": (
+                "You are a helpful assistant that composes a short Discord survey in German. "
+                "Output only the survey text suitable for posting directly in a channel: start with a single-line date/title, a one-line topic or context, a single clear question, and three concise options labeled with emojis 1️⃣, 2️⃣, 3️⃣. "
+                "Do not add extra commentary, codeblocks, or markup. Keep it brief and neutral."
+            ),
+        }
+        user_msg = {"role": "user", "content": "Generate today's short survey in German."}
+
+        loop = asyncio.get_running_loop()
+
+        def call_openai(key, messages):
+            # Synchronous HTTP call executed in a thread to avoid extra deps
+            import urllib.request
+            import json as _json
+            import ssl
+
+            url = "https://api.openai.com/v1/chat/completions"
+            payload = {
+                "model": "gpt-3.5-turbo",
+                "messages": messages,
+                "temperature": 0.7,
+                "max_tokens": 200,
+            }
+            data = _json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                url,
+                data=data,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {key}",
+                },
+            )
+            ctx = ssl.create_default_context()
+            with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
+                return _json.loads(resp.read().decode("utf-8"))
+
+        try:
+            resp = await loop.run_in_executor(None, call_openai, api_key, [system_msg, user_msg])
+            content = resp.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+            if content:
+                # ensure date header exists
+                today = datetime.datetime.now().strftime("%Y-%m-%d")
+                if "Umfrage für" not in content and today not in content:
+                    content = f"Umfrage für {today}\n\n" + content
+                return content
+        except Exception as e:
+            print("OpenAI request failed:", e)
+
+    # Fallback deterministic topics when no API key or request fails
     topics = [
         "KI-Regulierung: Soll es strengere Regeln für KI geben?",
         "Home-Office vs Büro: Welche Arbeitsform bevorzugst du für die Zukunft?",
@@ -244,6 +299,26 @@ async def setup_survey(ctx: commands.Context):
     # Post a confirmation survey now
     await post_survey(target_channel.id)
 
+
+# Slash-command variant for setup (accepts a channel option)
+@bot.tree.command(name="setup_survey", description="Konfiguriere den Kanal für tägliche Umfragen")
+@discord.app_commands.describe(channel="Text channel, in dem die Umfragen gepostet werden")
+async def setup_survey_slash(interaction: discord.Interaction, channel: discord.TextChannel):
+    if not interaction.user.guild_permissions.manage_guild:
+        return await interaction.response.send_message("Nur Moderatoren können diesen Befehl verwenden.", ephemeral=True)
+
+    cfg = read_config()
+    cfg["survey_channel_id"] = channel.id
+    write_config(cfg)
+
+    try:
+        await interaction.response.send_message(f"Umfragen werden täglich um 12:00 im Kanal {channel.mention} gepostet.")
+    except Exception:
+        # fallback if sending fails
+        pass
+
+    # Post a confirmation survey now
+    await post_survey(channel.id)
 
 
 def load_discord_opus() -> None:
@@ -2493,6 +2568,7 @@ async def on_voice_state_update(member, before, after):
 
 # =========================
 # START
+# =========================
 if __name__ == "__main__":
     keep_alive()
     bot.run(TOKEN)
