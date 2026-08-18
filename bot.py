@@ -1,5 +1,4 @@
 import asyncio
-import glob
 import sys
 import discord
 from discord import app_commands
@@ -379,14 +378,10 @@ except ImportError:
 YTDL_OPTIONS = {
     "format": "bestaudio/best",
     "quiet": True,
-    "noplaylist": True,
-    "skip_download": True,
-    "default_search": "ytsearch",
+    "default_search": "auto",
     "source_address": "0.0.0.0",
     "nocheckcertificate": True,
     "ignoreerrors": True,
-    "no_warnings": True,
-    "extract_flat": False,
 }
 
 FFMPEG_OPTIONS = {
@@ -403,38 +398,15 @@ def resolve_ffmpeg_executable() -> str | None:
 
     candidates.extend([
         shutil.which("ffmpeg"),
-        shutil.which("ffmpeg.exe"),
         os.path.join(BASE_DIR, "ffmpeg.exe"),
-        os.path.join(BASE_DIR, "ffmpeg", "bin", "ffmpeg.exe"),
         os.path.join(BASE_DIR, "bin", "ffmpeg.exe"),
         os.path.join(os.path.expanduser("~"), "ffmpeg", "bin", "ffmpeg.exe"),
-        os.path.join(os.path.expanduser("~"), "Downloads", "ffmpeg", "bin", "ffmpeg.exe"),
-        os.path.join(os.path.expanduser("~"), "AppData", "Local", "Programs", "ffmpeg", "bin", "ffmpeg.exe"),
         r"C:\ffmpeg\bin\ffmpeg.exe",
-        r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
-        r"C:\Program Files (x86)\ffmpeg\bin\ffmpeg.exe",
     ])
 
-    for path in candidates:
-        if not path:
-            continue
-        expanded = os.path.expandvars(os.path.expanduser(path))
-        if os.path.isfile(expanded):
-            return expanded
-
-    search_roots = [
-        os.path.expanduser("~"),
-        "C:\\",
-        os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "ffmpeg"),
-        os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), "ffmpeg"),
-    ]
-    for root in search_roots:
-        if not root:
-            continue
-        for match in glob.glob(os.path.join(root, "**", "ffmpeg.exe"), recursive=True):
-            if os.path.isfile(match):
-                return match
-
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
     return None
 
 
@@ -482,12 +454,9 @@ async def create_ytdl_source(search: str):
         )
 
     loop = asyncio.get_running_loop()
-    normalized_search = search.strip()
-    if normalized_search and not is_audio_url(normalized_search):
-        normalized_search = f"ytsearch1:{normalized_search}"
 
     def extract():
-        return youtube_dl.YoutubeDL(YTDL_OPTIONS).extract_info(normalized_search, download=False)
+        return youtube_dl.YoutubeDL(YTDL_OPTIONS).extract_info(search, download=False)
 
     data = await loop.run_in_executor(None, extract)
     if data is None:
@@ -498,31 +467,8 @@ async def create_ytdl_source(search: str):
         if data is None:
             raise RuntimeError("Keine Audioquelle gefunden.")
 
-    if not data.get("url") and data.get("webpage_url"):
-        def resolve_detail():
-            return youtube_dl.YoutubeDL(YTDL_OPTIONS).extract_info(data["webpage_url"], download=False)
-
-        data = await loop.run_in_executor(None, resolve_detail)
-
     url = data.get("url")
-    if url is None:
-        audio_candidates = []
-        for fmt in data.get("formats", []):
-            stream_url = fmt.get("url")
-            if not stream_url or "i.ytimg.com" in stream_url:
-                continue
-            if fmt.get("acodec") not in (None, "none") and fmt.get("vcodec") in (None, "none"):
-                audio_candidates.append(fmt)
-        if audio_candidates:
-            audio_candidates.sort(key=lambda item: (item.get("tbr") or 0, item.get("audio_ext") or ""), reverse=True)
-            url = audio_candidates[0].get("url")
-
-    if url is None:
-        manifest_url = data.get("manifest_url")
-        if manifest_url:
-            url = manifest_url
-
-    title = data.get("title") or search.strip() or "YouTube-Musik"
+    title = data.get("title") or search
     if url is None:
         raise RuntimeError("Konnte die Audio-URL nicht extrahieren.")
 
