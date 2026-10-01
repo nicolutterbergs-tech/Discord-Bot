@@ -326,59 +326,22 @@ def load_discord_opus() -> None:
         if discord.opus.is_loaded():
             return
 
-        opus_dir = os.path.dirname(discord.opus.__file__)
-        bin_dir = os.path.join(opus_dir, "bin")
-        env_candidate = os.getenv("OPUS_PATH")
-        candidates = []
-
-        if env_candidate:
-            candidates.append(env_candidate)
-
-        if os.name == "nt":
-            candidates.extend([
-                os.path.join(bin_dir, "libopus-0.x64.dll"),
-                os.path.join(bin_dir, "libopus-0.x86.dll"),
-                os.path.join(bin_dir, "opus.dll"),
-                os.path.join(BASE_DIR, "bin", "libopus-0.x64.dll"),
-                os.path.join(BASE_DIR, "bin", "libopus-0.x86.dll"),
-                os.path.join(BASE_DIR, "bin", "opus.dll"),
-                r"C:\ffmpeg\bin\opus.dll",
-                r"C:\Program Files\ffmpeg\bin\opus.dll",
-                r"C:\Program Files (x86)\ffmpeg\bin\opus.dll",
-            ])
-        else:
-            candidates.extend([
-                os.path.join(bin_dir, "libopus.so"),
-                os.path.join(bin_dir, "libopus.so.0"),
-                os.path.join(bin_dir, "libopus.so.1"),
-                "/usr/lib/x86_64-linux-gnu/libopus.so",
-                "/usr/lib/x86_64-linux-gnu/libopus.so.0",
-                "/usr/lib64/libopus.so",
-                "/usr/lib64/libopus.so.0",
-                "/usr/local/lib/libopus.so",
-                "/usr/local/lib/libopus.so.0",
-            ])
+        opus_dir = os.path.join(os.path.dirname(discord.opus.__file__), "bin")
+        candidates = [
+            os.path.join(opus_dir, "libopus-0.x64.dll"),
+            os.path.join(opus_dir, "libopus-0.x86.dll"),
+            os.path.join(opus_dir, "opus.dll"),
+        ]
 
         for candidate in candidates:
-            if not candidate or not os.path.exists(candidate):
-                continue
-            try:
+            if os.path.exists(candidate):
                 discord.opus.load_opus(candidate)
-                if discord.opus.is_loaded():
-                    return
-            except Exception:
-                continue
+                break
+        else:
+            discord.opus.load_opus("libopus-0.x64.dll")
 
-        if os.name != "nt":
-            for fallback in ["libopus.so", "libopus.so.0", "libopus.so.1"]:
-                try:
-                    discord.opus.load_opus(fallback)
-                    if discord.opus.is_loaded():
-                        return
-                except Exception:
-                    continue
-
-        raise RuntimeError("Discord.py konnte die Opus-Bibliothek nicht laden.")
+        if not discord.opus.is_loaded():
+            raise RuntimeError("Discord.py konnte die Opus-Bibliothek nicht laden.")
     except Exception as exc:
         print(f"⚠️ Opus-Ladung fehlgeschlagen: {exc}")
 
