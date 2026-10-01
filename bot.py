@@ -2579,6 +2579,16 @@ async def on_voice_state_update(member, before, after):
     if after.channel and after.channel != before.channel:
         await update_alone_role(after.channel)
 
+    if not member.bot and before.channel:
+        voice_client = before.channel.guild.voice_client
+        if (
+            voice_client is not None
+            and voice_client.is_connected()
+            and voice_client.channel == before.channel
+            and not any(not channel_member.bot for channel_member in before.channel.members)
+        ):
+            await voice_client.disconnect()
+
 
 # =========================
 # START
