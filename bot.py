@@ -375,6 +375,22 @@ except ImportError:
     except ImportError:
         youtube_dl = None
 
+
+def load_ytdl_module():
+    global youtube_dl
+    if youtube_dl is not None:
+        return youtube_dl
+
+    try:
+        import yt_dlp as youtube_dl
+    except ImportError:
+        try:
+            import youtube_dl
+        except ImportError:
+            return None
+
+    return youtube_dl
+
 YTDL_OPTIONS = {
     "format": "bestaudio/best",
     "quiet": True,
@@ -448,15 +464,17 @@ async def ensure_voice_channel_ready(channel: discord.VoiceChannel):
 
 
 async def create_ytdl_source(search: str):
-    if youtube_dl is None:
+    ytdl = load_ytdl_module()
+    if ytdl is None:
         raise RuntimeError(
-            "Musikwiedergabe von YouTube erfordert die Installation von yt_dlp oder youtube_dl."
+            f"yt-dlp fehlt in dieser Python-Umgebung ({sys.executable}). "
+            f'Installiere es mit: "{sys.executable}" -m pip install yt-dlp.'
         )
 
     loop = asyncio.get_running_loop()
 
     def extract():
-        return youtube_dl.YoutubeDL(YTDL_OPTIONS).extract_info(search, download=False)
+        return ytdl.YoutubeDL(YTDL_OPTIONS).extract_info(search, download=False)
 
     data = await loop.run_in_executor(None, extract)
     if data is None:
@@ -476,20 +494,16 @@ async def create_ytdl_source(search: str):
 
 
 async def get_audio_source(search: str):
+    ytdl = load_ytdl_module()
     if is_audio_url(search):
-        if youtube_dl is not None:
+        if ytdl is not None:
             try:
                 return await create_ytdl_source(search)
             except Exception:
                 return search, os.path.basename(search)
         return search, os.path.basename(search)
 
-    if youtube_dl is not None:
-        return await create_ytdl_source(search)
-
-    raise RuntimeError(
-        "Für die Musiksuche benötigst du yt_dlp oder youtube_dl. Alternativ nutze einen direkten MP3/OGG-Link."
-    )
+    return await create_ytdl_source(search)
 
 
 @bot.tree.command(name="join", description="Bringt mich in deinen Voice-Channel.")
